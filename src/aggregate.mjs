@@ -131,7 +131,12 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     };
   });
 
+  // The newest round anyone has claimed, and what apps got in it: all-time
+  // totals hide emission cuts, the latest round shows them.
+  const latestRound = claims.reduce((m, c) => Math.max(m, c.round), 0);
   const totals = str({
+    latestRound: BigInt(latestRound),
+    latestRoundToApps: sum(claims.filter((c) => c.round === latestRound).map((c) => c.total)),
     allocated: sum(out.map((a) => BigInt(a.allocation.total))),
     toTeams: sum(out.map((a) => BigInt(a.allocation.toTeam))),
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),

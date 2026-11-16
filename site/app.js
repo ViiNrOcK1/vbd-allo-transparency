@@ -47,6 +47,7 @@ function renderTotals(d) {
   const t = d.totals;
   const allocated = b3(t.allocated);
   const cards = [
+    [`Round #${t.latestRound} to apps`, fmt(b3(t.latestRoundToApps)) + ' B3TR', 'latest claimed round (apps only)'],
     ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds`],
     ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
     ['Sent to team wallets', fmt(b3(t.toTeams)) + ' B3TR', `${allocated ? ((b3(t.toTeams) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
@@ -132,7 +133,7 @@ function render() {
       const soldPct = a.ratios.soldPctOfTeamReceipts;
       const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}`;
       const main = `<tr class="row" data-id="${esc(a.id)}" tabindex="0" aria-expanded="${open === a.id}">
-        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds</span></td>
+        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.perRound.length ? ` · last: ${fmt(b3(a.perRound.at(-1).total))} in #${a.perRound.at(-1).round}` : ''}</span></td>
         <td data-label="Allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span></td>
         <td data-label="Team share">${pctTxt(teamPct < 0 ? null : teamPct)}</td>

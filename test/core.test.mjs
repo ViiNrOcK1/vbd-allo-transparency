@@ -216,6 +216,11 @@ describe('summarize', () => {
     expect(shared.totals.sold).toBe((400n * E18).toString());
   });
 
+  it('latest round total is apps-only and from the newest round', () => {
+    expect(s.totals.latestRound).toBe('2');
+    expect(s.totals.latestRoundToApps).toBe((700n * E18).toString()); // 500 + 200 in round 2
+  });
+
   it('pct', () => {
     expect(pct(1n, 3n)).toBe(33.3);
     expect(pct(1n, 0n)).toBe(null);
