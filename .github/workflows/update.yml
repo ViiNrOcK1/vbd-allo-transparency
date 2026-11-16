@@ -44,6 +44,9 @@ jobs:
       - name: Index VeChain mainnet
         run: node src/index.mjs --out site/data
 
+      - name: Summary
+        run: node scripts/report.mjs site/data/summary.json
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
