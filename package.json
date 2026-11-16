@@ -1,5 +1,5 @@
 {
-  "name": "vbd-allocation-transparency",
+  "name": "vbd-allo-transparency",
   "private": true,
   "type": "module",
   "description": "Where each VeBetterDAO app's B3TR allocation goes: to users, held, or sold. Read straight from VeChain mainnet.",
