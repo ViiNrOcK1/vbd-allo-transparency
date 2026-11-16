@@ -1,0 +1,19 @@
+{
+  "name": "vbd-allocation-transparency",
+  "private": true,
+  "type": "module",
+  "description": "Where each VeBetterDAO app's B3TR allocation goes: to users, held, or sold. Read straight from VeChain mainnet.",
+  "scripts": {
+    "index": "node src/index.mjs",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "viem": "^2.57.20"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.9"
+  }
+}

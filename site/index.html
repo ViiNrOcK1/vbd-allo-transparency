@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VeBetterDAO Allocation Tracker</title>
+  <meta name="description" content="Where each VeBetterDAO app's B3TR allocation goes — paid to users, held, or sold — read directly from VeChain mainnet." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <p class="eyebrow">Independent · on-chain · updated daily</p>
+      <h1>Where does the allocation go?</h1>
+      <p class="lede">
+        Every VeBetterDAO round, B3TR is allocated to apps. Part goes to the app's
+        <strong>rewards pool</strong> for its users, part to the <strong>team wallet</strong>.
+        This page follows both, straight from VeChain mainnet.
+      </p>
+      <p class="meta" id="meta">Loading…</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="cards" id="totals" aria-label="Totals"></section>
+
+    <details class="how">
+      <summary>How to read this</summary>
+      <ul>
+        <li><strong>Allocated</strong> — B3TR the app claimed from VeBetterDAO's allocation rounds (<code>AllocationRewardsClaimed</code>).</li>
+        <li><strong>Paid to users</strong> — exact: B3TR can only leave an app's rewards pool by being paid to a user or withdrawn by the team, so <em>paid = deposited − withdrawn − still in the pool</em>.</li>
+        <li><strong>Sold</strong> — B3TR sent from a team wallet in a transaction that <em>swapped in a pool holding B3TR</em>. Adding liquidity is counted separately and is not a sale.</li>
+        <li><strong>Other wallets / contracts</strong> — transfers we can't identify. They are <em>not</em> assumed to be sales; the top recipients are listed so you can check them yourself.</li>
+        <li>When several apps share one team wallet, its flows can't be split between them; those apps are marked <span class="tag">shared wallet</span>.</li>
+      </ul>
+      <p class="fine">Not financial advice and not an accusation of anyone. Team wallets are allowed to spend their share; this only shows what happened.</p>
+    </details>
+
+    <div class="toolbar">
+      <label class="search"><span class="sr">Search apps</span>
+        <input id="q" type="search" placeholder="Search apps…" autocomplete="off" />
+      </label>
+      <label class="toggle"><input type="checkbox" id="activeOnly" checked /> Active apps only</label>
+      <label class="sortbar"><span class="sr">Sort by</span>
+        <select id="sortSel">
+          <option value="allocated">Sort: Allocated</option>
+          <option value="paidPct">Sort: Paid to users %</option>
+          <option value="teamPct">Sort: Team share %</option>
+          <option value="sold">Sort: Sold by team</option>
+          <option value="held">Sort: Team wallet now</option>
+          <option value="name">Sort: Name</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="tablewrap">
+      <table id="apps">
+        <thead>
+          <tr>
+            <th data-k="name" class="l">App</th>
+            <th data-k="allocated">Allocated</th>
+            <th data-k="paidPct">Paid to users</th>
+            <th data-k="teamPct">Team share</th>
+            <th data-k="sold">Sold by team</th>
+            <th data-k="held">Team wallet now</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="fine" id="empty" hidden>No apps match.</p>
+  </main>
+
+  <footer class="wrap foot">
+    <p>Data: VeBetterDAO contracts on VeChain mainnet (X2EarnApps, XAllocationPool, X2EarnRewardsPool, B3TR).
+      <a href="https://github.com/ViiNrOcK1/vbd-allocation-transparency">Open source</a> — check the method, run it yourself.</p>
+    <p>Built by <a href="https://www.b3trbeach.org">B3TR Beach</a>, a VeBetterDAO app. We're in the table too.</p>
+  </footer>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
