@@ -43,6 +43,11 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   for (const c of claims) if (receivedOf.has(c.appId)) receivedOf.set(c.appId, receivedOf.get(c.appId) + c.toTeam);
   for (const w of withdrawals) if (receivedOf.has(w.appId)) receivedOf.set(w.appId, receivedOf.get(w.appId) + w.amount);
 
+  // "Current" = the newest round that's been (nearly) fully claimed. Right
+  // after a round ends, apps claim one by one; showing a half-claimed round as
+  // "current" would make allocations look like they collapsed.
+  const currentRound = pickCurrentRound(claims);
+
   const out = apps.map((app) => {
     const myClaims = claims.filter((c) => c.appId === app.id).sort((a, b) => a.round - b.round);
     const myDeposits = deposits.filter((d) => d.appId === app.id);
@@ -103,6 +108,10 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       firstRound: myClaims[0]?.round ?? null,
       lastRound: myClaims.at(-1)?.round ?? null,
       perRound: myClaims.map((c) => ({ round: c.round, total: c.total.toString() })),
+      current: (() => {
+        const c = myClaims.find((x) => x.round === currentRound);
+        return c ? { round: c.round, total: c.total.toString(), toTeam: c.toTeam.toString(), toRewardsPool: c.toPool.toString() } : null;
+      })(),
       allocation: str(allocation),
       rewardsPool: str({
         deposits: depositsTotal,
@@ -134,9 +143,14 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   // The newest round anyone has claimed, and what apps got in it: all-time
   // totals hide emission cuts, the latest round shows them.
   const latestRound = claims.reduce((m, c) => Math.max(m, c.round), 0);
+  const inCurrent = claims.filter((c) => c.round === currentRound);
   const totals = str({
     latestRound: BigInt(latestRound),
     latestRoundToApps: sum(claims.filter((c) => c.round === latestRound).map((c) => c.total)),
+    currentRound: BigInt(currentRound),
+    currentRoundToApps: sum(inCurrent.map((c) => c.total)),
+    currentRoundToTeams: sum(inCurrent.map((c) => c.toTeam)),
+    currentRoundApps: BigInt(inCurrent.length),
     allocated: sum(out.map((a) => BigInt(a.allocation.total))),
     toTeams: sum(out.map((a) => BigInt(a.allocation.toTeam))),
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
@@ -151,4 +165,18 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
 
 function str(o) {
   return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v]));
+}
+
+/**
+ * The newest round whose claims are (nearly) complete: at least 90% as many
+ * claims as the round before it. Otherwise the round before.
+ */
+export function pickCurrentRound(claims) {
+  const count = new Map();
+  for (const c of claims) count.set(c.round, (count.get(c.round) ?? 0) + 1);
+  const rounds = [...count.keys()].sort((a, b) => b - a);
+  if (rounds.length === 0) return 0;
+  const [newest, previous] = rounds;
+  if (previous === undefined) return newest;
+  return count.get(newest) >= 0.9 * count.get(previous) ? newest : previous;
 }

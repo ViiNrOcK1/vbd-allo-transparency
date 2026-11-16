@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decodeEventLog, encodeAbiParameters, encodeEventTopics, parseAbiParameters } from 'viem';
 import { ABI, MAINNET, TOPIC, VBD_CONTRACTS } from '../src/abi.mjs';
 import { classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from '../src/classify.mjs';
-import { pct, summarize } from '../src/aggregate.mjs';
+import { pct, pickCurrentRound, summarize } from '../src/aggregate.mjs';
 import { createThor } from '../src/thor.mjs';
 
 const E18 = 10n ** 18n;
@@ -219,6 +219,17 @@ describe('summarize', () => {
   it('latest round total is apps-only and from the newest round', () => {
     expect(s.totals.latestRound).toBe('2');
     expect(s.totals.latestRoundToApps).toBe((700n * E18).toString()); // 500 + 200 in round 2
+  });
+
+  it('current round: newest when nearly fully claimed, else the one before', () => {
+    const mk = (round, n) => Array.from({ length: n }, () => ({ round }));
+    expect(pickCurrentRound([...mk(123, 70), ...mk(124, 66)])).toBe(124); // 94%
+    expect(pickCurrentRound([...mk(123, 70), ...mk(124, 10)])).toBe(123); // just ended, half-claimed
+    expect(pickCurrentRound(mk(5, 3))).toBe(5);
+    expect(pickCurrentRound([])).toBe(0);
+    // In the fixture both apps claimed round 2 (2 of 2 vs 1 in round 1).
+    expect(s.totals.currentRound).toBe('2');
+    expect(alpha.current).toMatchObject({ round: 2, total: (500n * E18).toString() });
   });
 
   it('pct', () => {

@@ -1,11 +1,12 @@
 name: Update and publish
 
-# Daily, plus on every push to main and on demand. Runs entirely on GitHub
+# Every 6 hours, plus on every push to main and on demand. Runs entirely on GitHub
 # (Actions + Pages): no Netlify build minutes, no keys — the data is public
 # and read-only from a VeChain node.
 on:
   schedule:
-    - cron: '23 6 * * *'
+    # Every 6 hours, so a round's claims show up the same day.
+    - cron: '23 */6 * * *'
   push:
     branches: [main]
   workflow_dispatch:

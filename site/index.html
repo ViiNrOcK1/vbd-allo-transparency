@@ -10,7 +10,7 @@
 <body>
   <header class="top">
     <div class="wrap">
-      <p class="eyebrow">Independent · on-chain · updated daily</p>
+      <p class="eyebrow">Independent · on-chain · updated every 6 hours</p>
       <h1>Where does the allocation go?</h1>
       <p class="lede">
         Every VeBetterDAO round, B3TR is allocated to apps. Part goes to the app's
@@ -43,7 +43,8 @@
       <label class="toggle"><input type="checkbox" id="activeOnly" checked /> Active apps only</label>
       <label class="sortbar"><span class="sr">Sort by</span>
         <select id="sortSel">
-          <option value="allocated">Sort: Allocated</option>
+          <option value="current">Sort: This round</option>
+          <option value="allocated">Sort: All-time allocated</option>
           <option value="paidPct">Sort: Paid to users %</option>
           <option value="teamPct">Sort: Team share %</option>
           <option value="sold">Sort: Sold by team</option>
@@ -58,7 +59,8 @@
         <thead>
           <tr>
             <th data-k="name" class="l">App</th>
-            <th data-k="allocated">Allocated</th>
+            <th data-k="current" id="curHead">This round</th>
+            <th data-k="allocated">All-time allocated</th>
             <th data-k="paidPct">Paid to users</th>
             <th data-k="teamPct">Team share</th>
             <th data-k="sold">Sold by team</th>

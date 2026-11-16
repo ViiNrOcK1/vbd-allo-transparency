@@ -78,7 +78,7 @@ h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 44px); line-height: 1.1; lett
 
 .tablewrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
 table { width: 100%; border-collapse: collapse; min-width: 720px; }
-th, td { padding: 12px 14px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th, td { padding: 11px 10px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
 th.l, td.l { text-align: left; }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--panel); }
 th[aria-sort]::after { content: " ↓"; }

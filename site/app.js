@@ -27,7 +27,7 @@ const KIND_LABEL = {
 };
 
 let DATA = null;
-let sortKey = 'allocated';
+let sortKey = 'current';
 let sortDir = -1;
 let open = null;
 
@@ -35,6 +35,7 @@ function rowsOf(apps) {
   return apps.map((a) => ({
     a,
     name: a.name.toLowerCase(),
+    current: a.current ? b3(a.current.total) : -1,
     allocated: b3(a.allocation.total),
     paidPct: a.ratios.paidToUsersPctOfAllocation ?? -1,
     teamPct: a.ratios.teamSharePct ?? -1,
@@ -47,7 +48,7 @@ function renderTotals(d) {
   const t = d.totals;
   const allocated = b3(t.allocated);
   const cards = [
-    [`Round #${t.latestRound} to apps`, fmt(b3(t.latestRoundToApps)) + ' B3TR', 'latest claimed round (apps only)'],
+    [`Round #${t.currentRound} to apps`, fmt(b3(t.currentRoundToApps)) + ' B3TR', `${t.currentRoundApps} apps · ${fmt(b3(t.currentRoundToTeams))} of it to team wallets`],
     ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds`],
     ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
     ['Sent to team wallets', fmt(b3(t.toTeams)) + ' B3TR', `${allocated ? ((b3(t.toTeams) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
@@ -129,18 +130,19 @@ function render() {
 
   $('#empty').hidden = rows.length > 0;
   $('#apps tbody').innerHTML = rows
-    .map(({ a, allocated, paidPct, teamPct, sold, held }) => {
+    .map(({ a, current, allocated, paidPct, teamPct, sold, held }) => {
       const soldPct = a.ratios.soldPctOfTeamReceipts;
       const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}`;
       const main = `<tr class="row" data-id="${esc(a.id)}" tabindex="0" aria-expanded="${open === a.id}">
         <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.perRound.length ? ` · last: ${fmt(b3(a.perRound.at(-1).total))} in #${a.perRound.at(-1).round}` : ''}</span></td>
-        <td data-label="Allocated">${fmt(allocated)}</td>
+        <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>
+        <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span></td>
         <td data-label="Team share">${pctTxt(teamPct < 0 ? null : teamPct)}</td>
         <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of team receipts${a.sharedWalletWith.length ? ' (shared)' : ''}`}</span></td>
         <td data-label="Team wallet now">${fmt(held)}</td>
       </tr>`;
-      return open === a.id ? `${main}<tr class="detail"><td colspan="6">${detailHtml(a)}</td></tr>` : main;
+      return open === a.id ? `${main}<tr class="detail"><td colspan="7">${detailHtml(a)}</td></tr>` : main;
     })
     .join('');
 }
@@ -152,6 +154,8 @@ async function main() {
   const when = new Date(DATA.generatedAt);
   $('#meta').textContent = `Updated ${when.toLocaleString()} · block ${DATA.bestBlock.toLocaleString()} · ${DATA.apps.length} apps`;
   renderTotals(DATA);
+  const head = document.getElementById('curHead');
+  if (head) head.textContent = `Round #${DATA.totals.currentRound}`;
   render();
 
   $('#q').addEventListener('input', render);
