@@ -28,6 +28,7 @@
       <summary>How to read this</summary>
       <ul>
         <li><strong>Allocated</strong> — B3TR the app claimed from VeBetterDAO's allocation rounds (<code>AllocationRewardsClaimed</code>).</li>
+        <li><strong>Taken by team</strong> — the team's official share of each allocation <em>plus</em> what it withdrew from its own rewards pool, as a % of everything allocated. Most apps take 0% as a share and withdraw instead, so the share alone would hide it. Withdrawing isn't wrong in itself (each withdrawal records a reason on-chain); this just shows the size.</li>
         <li><strong>Paid to users</strong> — exact: B3TR can only leave an app's rewards pool by being paid to a user or withdrawn by the team, so <em>paid = deposited − withdrawn − still in the pool</em>.</li>
         <li><strong>Sold</strong> — B3TR sent from a team wallet in a transaction that <em>swapped in a pool holding B3TR</em>. Adding liquidity is counted separately and is not a sale.</li>
         <li><strong>Other wallets / contracts</strong> — transfers we can't identify. They are <em>not</em> assumed to be sales; the top recipients are listed so you can check them yourself.</li>
@@ -46,7 +47,7 @@
           <option value="current">Sort: This round</option>
           <option value="allocated">Sort: All-time allocated</option>
           <option value="paidPct">Sort: Paid to users %</option>
-          <option value="teamPct">Sort: Team share %</option>
+          <option value="teamPct">Sort: Taken by team %</option>
           <option value="sold">Sort: Sold by team</option>
           <option value="held">Sort: Team wallet now</option>
           <option value="name">Sort: Name</option>
@@ -62,7 +63,7 @@
             <th data-k="current" id="curHead">This round</th>
             <th data-k="allocated">All-time allocated</th>
             <th data-k="paidPct">Paid to users</th>
-            <th data-k="teamPct">Team share</th>
+            <th data-k="teamPct">Taken by team</th>
             <th data-k="sold">Sold by team</th>
             <th data-k="held">Team wallet now</th>
           </tr>

@@ -136,6 +136,11 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         paidToUsersPctOfAllocation: pct(paidToUsers, allocation.total),
         soldPctOfTeamReceipts: pct(sent.sold, groupReceived),
         teamSharePct: pct(allocation.toTeam, allocation.total),
+        // What the team actually took: the official split PLUS withdrawals
+        // from its own rewards pool. On mainnet almost every app's split is
+        // 0%, and teams take B3TR by withdrawing instead (5,818 withdrawals by
+        // Nov 2026) — so the split alone badly understates it.
+        takenByTeamPct: pct(receivedFromVbd, allocation.total),
       },
     };
   });
@@ -153,6 +158,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     currentRoundApps: BigInt(inCurrent.length),
     allocated: sum(out.map((a) => BigInt(a.allocation.total))),
     toTeams: sum(out.map((a) => BigInt(a.allocation.toTeam))),
+    withdrawnByTeams: sum(out.map((a) => BigInt(a.rewardsPool.withdrawnByTeam))),
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
     // Per WALLET, not per app: a wallet shared by two apps is counted once.
     sold: sum(

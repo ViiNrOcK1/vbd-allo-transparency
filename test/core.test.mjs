@@ -184,6 +184,9 @@ describe('summarize', () => {
     // sold 400 of (450 team share + 100 withdrawn) = 72.7%
     expect(alpha.ratios.soldPctOfTeamReceipts).toBe(72.7);
     expect(beta.ratios.soldPctOfTeamReceipts).toBe(null);
+    // 450 official share + 100 withdrawn, of 1500 allocated.
+    expect(alpha.ratios.takenByTeamPct).toBe(36.6);
+    expect(s.totals.withdrawnByTeams).toBe((100n * E18).toString());
   });
 
   it('flags apps that share a team wallet', () => {

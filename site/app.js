@@ -38,7 +38,7 @@ function rowsOf(apps) {
     current: a.current ? b3(a.current.total) : -1,
     allocated: b3(a.allocation.total),
     paidPct: a.ratios.paidToUsersPctOfAllocation ?? -1,
-    teamPct: a.ratios.teamSharePct ?? -1,
+    teamPct: a.ratios.takenByTeamPct ?? -1,
     sold: b3(a.teamWallet.sent.sold),
     held: b3(a.teamWallet.balanceNow),
   }));
@@ -51,7 +51,7 @@ function renderTotals(d) {
     [`Round #${t.currentRound} to apps`, fmt(b3(t.currentRoundToApps)) + ' B3TR', `${t.currentRoundApps} apps · ${fmt(b3(t.currentRoundToTeams))} of it to team wallets`],
     ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds`],
     ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
-    ['Sent to team wallets', fmt(b3(t.toTeams)) + ' B3TR', `${allocated ? ((b3(t.toTeams) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
+    ['Taken by teams', fmt(b3(t.toTeams) + b3(t.withdrawnByTeams)) + ' B3TR', `${allocated ? (((b3(t.toTeams) + b3(t.withdrawnByTeams)) / allocated) * 100).toFixed(1) : '—'}% of allocations · mostly pool withdrawals`],
     ['Sold by teams', fmt(b3(t.sold)) + ' B3TR', 'swapped in B3TR pools'],
   ];
   $('#totals').innerHTML = cards
@@ -138,7 +138,7 @@ function render() {
         <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>
         <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span></td>
-        <td data-label="Team share">${pctTxt(teamPct < 0 ? null : teamPct)}</td>
+        <td data-label="Taken by team">${pctTxt(teamPct < 0 ? null : teamPct)}<span class="sub">${a.ratios.teamSharePct ? `${a.ratios.teamSharePct}% official share` : 'via withdrawals'}</span></td>
         <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of team receipts${a.sharedWalletWith.length ? ' (shared)' : ''}`}</span></td>
         <td data-label="Team wallet now">${fmt(held)}</td>
       </tr>`;
