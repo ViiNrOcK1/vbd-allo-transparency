@@ -3,6 +3,9 @@
 //
 //   node scripts/trace.mjs site/data/summary.json 0xWALLET [0xWALLET …]
 //
+// Run it locally, not in this repo's Actions: Actions logs on a public repo
+// are public, and a trace can name people's personal wallets.
+//
 // Sale proceeds are read from the transaction itself: VET (native transfers)
 // and tokens that came back to the wallet in the same transaction, valued at
 // that day's VET/USD. Everything else is valued at that day's B3TR price.

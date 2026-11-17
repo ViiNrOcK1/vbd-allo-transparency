@@ -10,11 +10,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      trace:
-        description: 'Optional: wallets to trace in the log (space-separated)'
-        required: false
-        default: ''
 
 permissions:
   contents: read
@@ -51,12 +46,6 @@ jobs:
 
       - name: Summary
         run: node scripts/report.mjs site/data/summary.json
-
-      - name: Trace wallets (on request)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.trace != '' }}
-        env:
-          TRACE: ${{ inputs.trace }}
-        run: node scripts/trace.mjs site/data/summary.json $TRACE
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
