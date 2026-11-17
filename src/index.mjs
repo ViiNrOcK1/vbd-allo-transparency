@@ -297,12 +297,17 @@ async function main() {
     // 6. Our historical B3TR price vs CoinGecko's, last 365 days.
     try {
       const cg = await coingeckoDaily(fetch, 'vebetterdao');
-      const devs = [];
+      // CoinGecko's daily point is the price AT 00:00 UTC — i.e. the close
+      // of the day before — so compare it with our close of the previous day.
+      const rows = [];
       for (const [d, p] of Object.entries(cg)) {
-        const ours = priceAt(Date.parse(d) / 1000 + 43_200);
-        if (ours && p) devs.push(Math.abs(ours / p - 1));
+        const ours = priceAt(Date.parse(d) / 1000 - 1);
+        if (ours && p) rows.push({ d, ours, cg: p, dev: Math.abs(ours / p - 1) });
       }
-      devs.sort((a, b) => a - b);
+      const devs = rows.map((r) => r.dev).sort((a, b) => a - b);
+      for (const r of [...rows].sort((a, b) => b.dev - a.dev).slice(0, 12)) {
+        log(`price check worst: ${r.d} ours ${r.ours.toPrecision(4)} coingecko ${r.cg.toPrecision(4)} (${(r.dev * 100).toFixed(0)}%)`);
+      }
       const med = devs.length ? devs[devs.length >> 1] : 1;
       const p90 = devs.length ? devs[Math.floor(devs.length * 0.9)] : 1;
       add('B3TR price used for $ values (on-chain pool × VET/USD) vs CoinGecko, last year', devs.length >= 200 && med < 0.1, `${devs.length} days compared · median difference ${(med * 100).toFixed(1)}% · 90% of days within ${(p90 * 100).toFixed(1)}%`);
