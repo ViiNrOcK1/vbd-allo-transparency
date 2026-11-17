@@ -309,8 +309,19 @@ async function main() {
         log(`price check worst: ${r.d} ours ${r.ours.toPrecision(4)} coingecko ${r.cg.toPrecision(4)} (${(r.dev * 100).toFixed(0)}%)`);
       }
       const med = devs.length ? devs[devs.length >> 1] : 1;
-      const p90 = devs.length ? devs[Math.floor(devs.length * 0.9)] : 1;
-      add('B3TR price used for $ values (on-chain pool × VET/USD) vs CoinGecko, last year', devs.length >= 200 && med < 0.1, `${devs.length} days compared · median difference ${(med * 100).toFixed(1)}% · 90% of days within ${(p90 * 100).toFixed(1)}%`);
+      // CoinGecko's B3TR series is ~2× every other source from about 20 Feb
+      // to 31 Mar 2026 (CoinLore's monthly closes — Feb $0.00995, Mar $0.00904
+      // — match the on-chain price, checked 2026-11-17). Report the spread
+      // with and without that window so the gap is explained, not hidden.
+      const odd = (d) => d >= '2026-02-20' && d <= '2026-03-31';
+      const rest = rows.filter((r) => !odd(r.d)).map((r) => r.dev).sort((a, b) => a - b);
+      const p90 = rest.length ? rest[Math.floor(rest.length * 0.9)] : 1;
+      const inOdd = rows.filter((r) => odd(r.d)).length;
+      add(
+        'B3TR price used for $ values (on-chain pool × VET/USD) vs CoinGecko, last year',
+        devs.length >= 200 && med < 0.1,
+        `${devs.length} days compared · median difference ${(med * 100).toFixed(1)}% · 90% of days within ${(p90 * 100).toFixed(1)}%${inOdd ? ` (excluding ${inOdd} days, 20 Feb–31 Mar 2026, when CoinGecko shows about 2× the on-chain price; CoinLore’s monthly closes for those months match ours)` : ''}`,
+      );
     } catch (e) {
       add('B3TR price vs CoinGecko', null, `could not reach CoinGecko this run (${String(e?.message ?? e).slice(0, 80)})`);
     }
