@@ -32,8 +32,9 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   const dollars = (items) => {
     let total = 0;
     let unpriced = ZERO;
-    for (const [wei, ts] of items) {
-      const v = usd(wei, ts);
+    for (const [wei, ts, exact] of items) {
+      // `exact`: what a sale actually returned, when it could be read.
+      const v = typeof exact === 'number' ? exact : usd(wei, ts);
       if (v == null) unpriced += wei;
       else total += v;
     }
@@ -167,7 +168,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     const withdrawnUsd = dollars(myWithdrawals.map((w) => [w.amount, w.at]));
     const putBackUsd = dollars(myDeposits.filter((d) => d.depositor.toLowerCase() !== xap).map((d) => [d.amount, d.at]));
     const outs = myWallets.flatMap((w) => wallets[w]?.outflows ?? []);
-    const soldUsd = dollars(outs.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at]));
+    const soldUsd = dollars(outs.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at, f.usd]));
     const otherUsd = dollars(outs.filter((f) => f.kind === 'other_wallet' || f.kind === 'other_contract').map((f) => [f.value, f.at]));
     const valueUsd = {
       allocation: allocUsd.total,
@@ -291,7 +292,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
     // Per WALLET, not per app: a wallet shared by two apps is counted once.
     soldUsd: BigInt(
-      dollars(Object.values(wallets).flatMap((w) => w.outflows.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at]))).total,
+      dollars(Object.values(wallets).flatMap((w) => w.outflows.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at, f.usd]))).total,
     ),
     toOtherWalletsUsd: BigInt(
       dollars(

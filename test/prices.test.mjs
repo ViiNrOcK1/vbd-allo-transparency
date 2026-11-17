@@ -73,6 +73,8 @@ describe('value at the time', () => {
           inflows: [],
           outflows: [
             { to: '0x' + '9'.repeat(40), value: 200n * E18, kind: 'sold', txId: '0x1', at: T('2025-01-20') },
+            // A sale whose actual proceeds were read: $33.33, not 100 × $1.
+            { to: '0x' + '9'.repeat(40), value: 100n * E18, kind: 'sold', txId: '0x4', at: T('2025-01-21'), usd: 33.33 },
             { to: '0x' + '8'.repeat(40), value: 150n * E18, kind: 'other_wallet', txId: '0x2', at: T('2025-06-20') },
             { to: '0x' + '7'.repeat(40), value: 50n * E18, kind: 'other_wallet', txId: '0x3', at: null },
           ],
@@ -86,10 +88,10 @@ describe('value at the time', () => {
     expect(v.takenGross).toBe(400);
     expect(v.putBack).toBe(10); // 100 B3TR at $0.10
     expect(v.takenNet).toBe(390);
-    expect(v.sold).toBe(200);
+    expect(v.sold).toBe(233);
     expect(v.toOtherWallets).toBe(15);
     expect(v.unpricedB3tr).toBe((50n * E18).toString());
-    expect(s.totals.soldUsd).toBe('200');
+    expect(s.totals.soldUsd).toBe('233');
     expect(s.totals.takenNetUsd).toBe('390');
   });
 });

@@ -67,7 +67,7 @@ for (const raw of wallets) {
           if (ev.topics?.[0] !== TOPIC.transfer || ev.topics.length < 3) continue;
           if ('0x' + ev.topics[2].slice(26).toLowerCase() !== w) continue;
           const token = ev.address.toLowerCase();
-          if (token === B3TR) continue;
+          if (token === B3TR || token === MAINNET.vot3.toLowerCase()) continue;
           tokens[token] = (tokens[token] ?? 0) + num(BigInt(ev.data));
         }
       }

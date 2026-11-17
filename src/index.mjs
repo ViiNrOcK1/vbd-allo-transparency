@@ -12,7 +12,7 @@ import { ABI, GRANT_SOURCES, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
 import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from './classify.mjs';
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
-import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt } from './prices.mjs';
+import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []),
@@ -248,6 +248,59 @@ async function main() {
     if (p != null) priceSeries[dayOf(t)] = Number(p.toPrecision(5));
   }
   log(`B3TR/USD: ${Object.keys(priceSeries).length} priced days; today ${priceAt(best.timestamp)}`);
+
+  // ── What each proven sale actually returned ──
+  // A sale is valued by what came back to the wallet in the same transaction
+  // (native VET, or VVET / a USD stablecoin), at that day's VET/USD — not by
+  // the day's B3TR price. Falls back to the day price when the proceeds went
+  // elsewhere or came back in a token we can't price.
+  const proceeds = await loadCache('proceeds'); // txId → { vet, usdTokens } (B3TR-free, in whole units)
+  const symbols = await loadCache('symbols');
+  const symbolOf = async (t) => {
+    if (!(t in symbols)) symbols[t] = (await read(t, 'symbol').catch(() => null)) ?? '';
+    return symbols[t];
+  };
+  const vetUsdAt = seriesLookup(priceCache.vetUsd);
+  const units = (wei) => Number(BigInt(wei) / 10n ** 12n) / 1e6;
+  let exactSales = 0;
+  for (const [w, flows] of Object.entries(wallets)) {
+    const byTx = new Map();
+    for (const f of flows.outflows) if (f.kind === 'sold' && f.txId) byTx.set(f.txId, [...(byTx.get(f.txId) ?? []), f]);
+    await mapLimit([...byTx.keys()], 8, async (txId) => {
+      const key = `${txId}:${w}`;
+      if (!proceeds[key]) {
+        const r = await thor.receipt(txId);
+        let vet = 0;
+        let usdTokens = 0;
+        let unpriced = false;
+        for (const o of r?.outputs ?? []) {
+          for (const t of o.transfers ?? []) if (String(t.recipient).toLowerCase() === w) vet += units(t.amount);
+          for (const ev of o.events ?? []) {
+            if (ev.topics?.[0] !== TOPIC.transfer || ev.topics.length < 3) continue;
+            if ('0x' + ev.topics[2].slice(26).toLowerCase() !== w) continue;
+            const token = String(ev.address).toLowerCase();
+            if (token === MAINNET.b3tr.toLowerCase()) continue;
+            const sym = await symbolOf(token);
+            if (/^(v?vet|wvet)$/i.test(sym)) vet += units(ev.data);
+            else if (/^(usdc|usdt|usdglo|glo|veusd|dai|usd)/i.test(sym)) usdTokens += units(ev.data);
+            else unpriced = true;
+          }
+        }
+        proceeds[key] = { vet, usdTokens, unpriced };
+      }
+    });
+    for (const [txId, fs] of byTx) {
+      const p = proceeds[`${txId}:${w}`];
+      const vu = vetUsdAt(dayOf(fs[0].at));
+      if (!p || p.unpriced || (!p.vet && !p.usdTokens) || (p.vet && vu == null)) continue;
+      const usdTotal = p.vet * (vu ?? 0) + p.usdTokens;
+      const sent = fs.reduce((a, f) => a + f.value, 0n);
+      for (const f of fs) f.usd = sent ? (usdTotal * Number((f.value * 10_000n) / sent)) / 10_000 : 0;
+      exactSales++;
+    }
+  }
+  await Promise.all([saveCache('proceeds', proceeds), saveCache('symbols', symbols)]);
+  log(`sales valued by their actual proceeds: ${exactSales}`);
 
   // ── Cross-checks: the same facts from independent on-chain sources ──
   const checks = [];
