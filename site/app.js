@@ -180,7 +180,7 @@ function render() {
       const soldPct = a.ratios.soldPctOfTeamReceipts;
       const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}`;
       const main = `<tr class="row" data-id="${esc(a.id)}" tabindex="0" aria-expanded="${open === a.id}">
-        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.perRound.length ? ` · last: ${fmt(b3(a.perRound.at(-1).total))} in #${a.perRound.at(-1).round}` : ''}</span></td>
+        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.lastRound ? ` · last: ${fmt(b3((a.perRound.find((r) => r.round === a.lastRound) ?? { total: '0' }).total))} in #${a.lastRound}` : ''}</span></td>
         <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>
         <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users" title="Paid to users + taken by team + still in the pool = 100% of the allocation">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span>${a.ratios.stillInPoolPct ? `<span class="sub">${a.ratios.stillInPoolPct}% still in pool</span>` : ''}</td>
