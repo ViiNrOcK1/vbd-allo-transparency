@@ -12,6 +12,7 @@ export const KINDS = /** @type {const} */ ([
   'liquidity', // the tx added liquidity to a B3TR pool (not a sale)
   'rewards_pool', // re-deposited into the X2EarnRewardsPool (back to users)
   'vot3', // converted to VOT3 (voting power)
+  'to_dao', // back to the DAO treasury / grants side (e.g. a grant repayment)
   'vbd_contract', // another VeBetterDAO contract
   'internal', // to another wallet of the same app / team
   'other_contract', // a contract we could not identify
@@ -51,6 +52,9 @@ export function receiptPoolEvents(receipt) {
 export function classifyOutflow({ to, ownWallets, vbdContracts, isContract, poolEvents, b3trPools }) {
   const addr = String(to).toLowerCase();
   if (ownWallets.has(addr)) return 'internal';
+  // Treasury, GrantsManager, Timelock, foundation multisig: money going BACK
+  // to the DAO (B3TR Beach's 25k to the Treasury was a grant repayment).
+  if (GRANT_SOURCES.has(addr)) return 'to_dao';
   const vbd = vbdContracts[addr];
   if (vbd) return vbd;
   if (poolEvents) {

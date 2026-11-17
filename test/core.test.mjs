@@ -241,6 +241,17 @@ describe('summarize', () => {
   });
 });
 
+describe('outflows back to the DAO', () => {
+  it('a payment to the Treasury or GrantsManager is a return to the DAO, not "other"', () => {
+    const c = (to) => classifyOutflow({ to, ownWallets: new Set([W1]), vbdContracts: VBD_CONTRACTS, isContract: true, poolEvents: null, b3trPools: new Set() });
+    expect(c(MAINNET.treasury)).toBe('to_dao');
+    expect(c(MAINNET.grantsManager)).toBe('to_dao');
+    expect(c(MAINNET.timelock)).toBe('to_dao');
+    expect(c(MAINNET.b3trMultiSig)).toBe('to_dao');
+    expect(c(MAINNET.voterRewards)).toBe('vbd_contract');
+  });
+});
+
 describe('inflows (grants are not allocation)', () => {
   const own = new Set([W1]);
   it('labels each source literally', () => {

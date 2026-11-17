@@ -195,6 +195,8 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
           direct: grantsDirect.toString(),
           via: via.slice(0, 5).map((v) => str(v)),
           total: grantsTotal.toString(),
+          /** Sent back to the Treasury / GrantsManager / Timelock / multisig. */
+          returnedToDao: sent.to_dao.toString(),
         },
         /** The largest proven sales, with their transactions, for anyone to check. */
         largestSales: sales

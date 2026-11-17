@@ -22,6 +22,7 @@ const KIND_LABEL = {
   liquidity: 'Added to a B3TR pool (liquidity)',
   rewards_pool: 'Back into the rewards pool',
   vot3: 'Converted to VOT3',
+  to_dao: 'Returned to the DAO treasury / grants',
   vbd_contract: 'Other VeBetterDAO contract',
   other_contract: 'Other contract',
   other_wallet: 'Other wallet',
