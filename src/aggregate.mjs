@@ -22,8 +22,23 @@ export function pct(part, whole) {
  * @param {Record<string,{balance:bigint,outflows:{to:string,value:bigint,kind:string}[]}>} input.wallets lower-case wallet → flows
  * @param {string} input.xAllocationPool
  */
-export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {} }) {
+export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {}, priceAt = () => null }) {
   const xap = xAllocationPool.toLowerCase();
+  // Dollars at the time: each amount × the B3TR price on the day it moved.
+  const usd = (wei, ts) => {
+    const p = priceAt(ts);
+    return p == null ? null : (Number(wei / 10n ** 12n) / 1e6) * p;
+  };
+  const dollars = (items) => {
+    let total = 0;
+    let unpriced = ZERO;
+    for (const [wei, ts] of items) {
+      const v = usd(wei, ts);
+      if (v == null) unpriced += wei;
+      else total += v;
+    }
+    return { total: Math.round(total), unpriced };
+  };
 
   // Every wallet that ever received an app's team share, plus the current one.
   const walletsOf = new Map();
@@ -146,9 +161,29 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       .sort((a, b) => (b.counted > a.counted ? 1 : -1));
     const grantsTotal = grantsDirect + sum(via.map((v) => v.counted));
 
+    // ── Value at the time (USD) ──
+    const allocUsd = dollars(myClaims.map((c) => [c.total, c.at]));
+    const shareUsd = dollars(myClaims.map((c) => [c.toTeam, c.at]));
+    const withdrawnUsd = dollars(myWithdrawals.map((w) => [w.amount, w.at]));
+    const putBackUsd = dollars(myDeposits.filter((d) => d.depositor.toLowerCase() !== xap).map((d) => [d.amount, d.at]));
+    const outs = myWallets.flatMap((w) => wallets[w]?.outflows ?? []);
+    const soldUsd = dollars(outs.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at]));
+    const otherUsd = dollars(outs.filter((f) => f.kind === 'other_wallet' || f.kind === 'other_contract').map((f) => [f.value, f.at]));
+    const valueUsd = {
+      allocation: allocUsd.total,
+      takenGross: shareUsd.total + withdrawnUsd.total,
+      putBack: putBackUsd.total,
+      takenNet: shareUsd.total + withdrawnUsd.total - putBackUsd.total,
+      sold: soldUsd.total,
+      toOtherWallets: otherUsd.total,
+      /** B3TR moved on days with no known price (before pools traded). */
+      unpricedB3tr: [allocUsd, withdrawnUsd, soldUsd, otherUsd].reduce((a, x) => a + x.unpriced, ZERO).toString(),
+    };
+
     return {
       id: app.id,
       name: app.name,
+      valueUsd,
       active: app.active,
       teamAllocationPercentage: app.teamAllocationPercentage,
       teamWallets: myWallets,
@@ -255,6 +290,20 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     depositsByTeams: sum(out.map((a) => BigInt(a.rewardsPool.depositsByTeam))),
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
     // Per WALLET, not per app: a wallet shared by two apps is counted once.
+    soldUsd: BigInt(
+      dollars(Object.values(wallets).flatMap((w) => w.outflows.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at]))).total,
+    ),
+    toOtherWalletsUsd: BigInt(
+      dollars(
+        Object.values(wallets).flatMap((w) =>
+          w.outflows.filter((f) => f.kind === 'other_wallet' || f.kind === 'other_contract').map((f) => [f.value, f.at]),
+        ),
+      ).total,
+    ),
+    allocatedUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.allocation, 0)),
+    takenNetUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.takenNet, 0)),
+    withdrawnUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.takenGross, 0)),
+    putBackUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.putBack, 0)),
     sold: sum(
       Object.values(wallets).flatMap((w) => w.outflows.filter((f) => f.kind === 'sold').map((f) => f.value)),
     ),

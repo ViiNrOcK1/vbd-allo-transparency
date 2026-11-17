@@ -12,6 +12,7 @@ import { ABI, GRANT_SOURCES, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
 import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from './classify.mjs';
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
+import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt } from './prices.mjs';
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, all) => (a.startsWith('--') ? [...acc, [a.slice(2), all[i + 1]]] : acc), []),
@@ -79,7 +80,7 @@ async function main() {
   const depositLogs = await thor.logs([{ address: MAINNET.x2EarnRewardsPool, topic0: TOPIC.deposit }], 0, best.number);
   const deposits = depositLogs.map((l) => {
     const { args: e } = decode(l);
-    return { appId: e.appId.toLowerCase(), amount: e.amount, depositor: e.depositor.toLowerCase() };
+    return { appId: e.appId.toLowerCase(), amount: e.amount, depositor: e.depositor.toLowerCase(), at: l.meta?.blockTimestamp ?? null };
   });
   const withdrawalLogs = await thor.logs(
     [{ address: MAINNET.x2EarnRewardsPool, topic0: TOPIC.withdrawal }],
@@ -204,6 +205,50 @@ async function main() {
 
   await Promise.all([saveCache('contracts', contracts), saveCache('pools', pools), saveCache('receipts', receipts)]);
 
+  // ── Prices: B3TR/VET from the B3TR–VVET pools' Sync events × VET/USD ──
+  const poolMeta = await loadCache('poolmeta'); // pool → { other, symbol, b3trIs0 }
+  await mapLimit([...b3trPools], 6, async (p) => {
+    if (poolMeta[p]) return;
+    const [t0, t1] = await Promise.all([read(p, 'token0').catch(() => null), read(p, 'token1').catch(() => null)]);
+    if (!t0 || !t1) return;
+    const b3trIs0 = String(t0).toLowerCase() === MAINNET.b3tr.toLowerCase();
+    const other = String(b3trIs0 ? t1 : t0).toLowerCase();
+    const symbol = await read(other, 'symbol').catch(() => null);
+    poolMeta[p] = { other, symbol, b3trIs0 };
+  });
+  log(`B3TR pools: ${[...b3trPools].map((p) => `${p} B3TR/${poolMeta[p]?.symbol ?? '?'}`).join(', ')}`);
+  const vetPools = [...b3trPools].filter((p) => /^(v?vet|wvet)$/i.test(String(poolMeta[p]?.symbol ?? '')));
+  const priceCache = await loadCache('prices');
+  priceCache.pools ??= {};
+  for (const p of vetPools) {
+    const c = (priceCache.pools[p] ??= { lastBlock: -1, days: {} });
+    const syncs = await thor.logs([{ address: p, topic0: TOPIC.sync }], c.lastBlock + 1, best.number);
+    const b0 = poolMeta[p].b3trIs0;
+    foldSyncs(
+      c.days,
+      syncs.map((l) => {
+        const { args: e } = decode(l);
+        return { at: l.meta.blockTimestamp, b3tr: b0 ? e.reserve0 : e.reserve1, vet: b0 ? e.reserve1 : e.reserve0 };
+      }),
+    );
+    c.lastBlock = best.number;
+    log(`price pool ${p} (B3TR/${poolMeta[p].symbol}): ${syncs.length} new trades, ${Object.keys(c.days).length} days`);
+  }
+  const claimTimes = claims.map((c) => c.at).filter((t) => t != null);
+  const fromTs = (claimTimes.length ? Math.min(...claimTimes) : best.timestamp) - 30 * 86_400;
+  const vet = await fetchVetUsd(fetch, fromTs, best.timestamp);
+  priceCache.vetUsd = { ...(priceCache.vetUsd ?? {}), ...vet.series };
+  log(`VET/USD: ${vet.source || 'NONE'} — ${Object.keys(vet.series).length} days${vet.errors.length ? ` (failed: ${vet.errors.join('; ')})` : ''}`);
+  await Promise.all([saveCache('poolmeta', poolMeta), saveCache('prices', priceCache)]);
+  const b3trVet = dailyB3trVet(Object.fromEntries(vetPools.map((p) => [p, priceCache.pools[p].days])));
+  const priceAt = makePriceAt(b3trVet, priceCache.vetUsd);
+  const priceSeries = {};
+  for (let t = fromTs; t <= best.timestamp; t += 86_400) {
+    const p = priceAt(t);
+    if (p != null) priceSeries[dayOf(t)] = Number(p.toPrecision(5));
+  }
+  log(`B3TR/USD: ${Object.keys(priceSeries).length} priced days; today ${priceAt(best.timestamp)}`);
+
   // ── Cross-checks: the same facts from independent on-chain sources ──
   const checks = [];
   const add = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -249,6 +294,21 @@ async function main() {
     const poolHeld = (await read(MAINNET.b3tr, 'balanceOf', [MAINNET.x2EarnRewardsPool])) ?? 0n;
     const sumApps = Object.values(poolBalances).reduce((a, b) => a + b, 0n);
     add('Rewards pool: B3TR held ≥ sum of every app\'s balance', poolHeld >= sumApps, `holds ${fmt(poolHeld)}, apps' balances ${fmt(sumApps)} B3TR`);
+    // 6. Our historical B3TR price vs CoinGecko's, last 365 days.
+    try {
+      const cg = await coingeckoDaily(fetch, 'vebetterdao');
+      const devs = [];
+      for (const [d, p] of Object.entries(cg)) {
+        const ours = priceAt(Date.parse(d) / 1000 + 43_200);
+        if (ours && p) devs.push(Math.abs(ours / p - 1));
+      }
+      devs.sort((a, b) => a - b);
+      const med = devs.length ? devs[devs.length >> 1] : 1;
+      const p90 = devs.length ? devs[Math.floor(devs.length * 0.9)] : 1;
+      add('B3TR price used for $ values (on-chain pool × VET/USD) vs CoinGecko, last year', devs.length >= 200 && med < 0.1, `${devs.length} days compared · median difference ${(med * 100).toFixed(1)}% · 90% of days within ${(p90 * 100).toFixed(1)}%`);
+    } catch (e) {
+      add('B3TR price vs CoinGecko', null, `could not reach CoinGecko this run (${String(e?.message ?? e).slice(0, 80)})`);
+    }
   } catch (e) {
     add('cross-checks ran', false, String(e?.message ?? e).slice(0, 200));
   }
@@ -281,6 +341,7 @@ async function main() {
     poolBalances,
     wallets,
     xAllocationPool: MAINNET.xAllocationPool,
+    priceAt,
   });
 
   await mkdir(OUT, { recursive: true });
@@ -292,6 +353,12 @@ async function main() {
         bestBlock: best.number,
         source: 'VeChain mainnet, read directly from the VeBetterDAO contracts',
         checks,
+        prices: {
+          method: 'Each transfer is valued at that UTC day’s B3TR price: the last trade of the day in the deepest B3TR–VVET pool on VeChain, times that day’s VET/USD close.',
+          b3trVetPools: vetPools.map((p) => ({ pool: p, pair: `B3TR/${poolMeta[p].symbol}` })),
+          vetUsdSource: vet.source || null,
+          b3trUsd: priceSeries,
+        },
         contracts: MAINNET,
         ...summary,
       },

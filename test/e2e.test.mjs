@@ -102,6 +102,12 @@ describe('indexer end to end (fake node)', () => {
         ),
       );
       const s = JSON.parse(await readFile(join(dir, 'data/summary.json'), 'utf8'));
+      // The run report must not crash on a real summary (it prints to the CI log).
+      await new Promise((resolve, reject) =>
+        execFile(process.execPath, [join(process.cwd(), 'scripts/report.mjs'), join(dir, 'data/summary.json')], (err, stdout, stderr) =>
+          err ? reject(new Error(stderr || stdout)) : resolve(stdout),
+        ),
+      );
       const a = s.apps[0];
       expect(a.name).toBe('Alpha');
       expect(a.teamAllocationPercentage).toBe(30);

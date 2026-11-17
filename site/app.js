@@ -14,6 +14,8 @@ const fmt = (n) => {
   if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1) + 'k';
   return n.toFixed(a >= 10 ? 0 : 1);
 };
+/** Whole dollars → "$1.2M". */
+const usdTxt = (n) => (n === null || n === undefined ? '—' : (n < 0 ? '−$' : '$') + fmt(Math.abs(n)));
 const pctTxt = (p) => (p === null || p === undefined ? '—' : `${p}%`);
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
@@ -36,7 +38,7 @@ const IN_LABEL = {
   from_vot3: 'Converted back from VOT3',
   vbd_other: 'Other VeBetterDAO contract',
   other_contract: 'Other contract',
-  other_wallet: 'Other wallet',
+  other_wallet: 'Other wallets (likely exchanges / payroll)',
 };
 
 let DATA = null;
@@ -67,7 +69,8 @@ function takenCell(a) {
     const added = b3(a.rewardsPool.depositsByTeam) - b3(a.teamWallet.receivedFromVeBetterDAO);
     return `None<span class="sub">${added > 0 ? `added ${fmt(added)} of its own` : how || 'nothing withdrawn'}</span>`;
   }
-  return `${r.takenByTeamPct}%<span class="sub">${how}</span>`;
+  const v = a.valueUsd;
+  return `${r.takenByTeamPct}%<span class="sub">${how}${v && v.takenNet > 0 ? ` · ≈${usdTxt(v.takenNet)} then` : ''}</span>`;
 }
 
 function renderTotals(d) {
@@ -75,13 +78,14 @@ function renderTotals(d) {
   const allocated = b3(t.allocated);
   const cards = [
     [`Round #${t.currentRound} to apps`, fmt(b3(t.currentRoundToApps)) + ' B3TR', `${t.currentRoundApps} apps · ${fmt(b3(t.currentRoundToTeams))} of it to team wallets`],
-    ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds`],
+    ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds · ≈${usdTxt(Number(t.allocatedUsd ?? 0))} when received`],
     ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
     (() => {
       const net = b3(t.toTeams) + b3(t.withdrawnByTeams) - b3(t.depositsByTeams ?? '0');
-      return ['Taken by teams (net)', fmt(net) + ' B3TR', `${allocated ? ((net / allocated) * 100).toFixed(1) : '—'}% of allocations · withdrew ${fmt(b3(t.withdrawnByTeams))}, put back ${fmt(b3(t.depositsByTeams ?? '0'))}`];
+      return ['Taken by teams (net)', fmt(net) + ' B3TR', `${allocated ? ((net / allocated) * 100).toFixed(1) : '—'}% of allocations · ≈${usdTxt(Number(t.takenNetUsd ?? 0))} at the time · withdrew ${fmt(b3(t.withdrawnByTeams))}, put back ${fmt(b3(t.depositsByTeams ?? '0'))}`];
     })(),
-    ['Sold by teams', fmt(b3(t.sold)) + ' B3TR', 'swapped in B3TR pools'],
+    ['Sold by teams (proven)', fmt(b3(t.sold)) + ' B3TR', `≈${usdTxt(Number(t.soldUsd ?? 0))} when sold · swapped in B3TR pools`],
+    ['Moved to other wallets', usdTxt(Number(t.toOtherWalletsUsd ?? 0)), 'value when moved · usually exchanges or payroll — most likely sold for expenses'],
   ];
   $('#totals').innerHTML = cards
     .map(([k, v, s]) => `<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`)
@@ -155,6 +159,13 @@ function detailHtml(a) {
       </dl>
       <p class="fine">Wallet${a.teamWallets.length > 1 ? 's' : ''}: ${wallets}${a.sharedWalletWith.length ? '<br>Shared with other apps: flows can’t be split between them.' : ''}</p>
     </div>
+    ${a.valueUsd ? `<div class="dbox"><h3>Value at the time (USD)</h3><dl class="kv">
+        <dt>Allocation, when received</dt><dd>${usdTxt(a.valueUsd.allocation)}</dd>
+        <dt>Taken by team, net</dt><dd>${usdTxt(a.valueUsd.takenNet)}</dd>
+        ${a.valueUsd.putBack ? `<dt>…withdrawn ${usdTxt(a.valueUsd.takenGross)}, put back</dt><dd>${usdTxt(a.valueUsd.putBack)}</dd>` : ''}
+        <dt>Sold (proven swaps)</dt><dd>${usdTxt(a.valueUsd.sold)}</dd>
+        <dt>Sent to other wallets</dt><dd>${usdTxt(a.valueUsd.toOtherWallets)}</dd>
+      </dl><p class="fine">Each transfer is valued at that day’s B3TR price. “Other wallets” are usually exchanges or payroll — most of it is likely sold to cover costs, but the chain can’t prove where it ended up.</p></div>` : ''}
     ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
       <p class="fine">${grants > 0 ? `<strong>About ${fmt(grants)} B3TR of this was grant / DAO funding</strong>${viaTxt ? `, partly passed on by ${viaTxt}, which received it from VeBetterDAO` : ''}. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
     ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check. B3TR moved to another wallet or an exchange first and sold there isn’t counted, so “sold” is a floor.</p></div>` : ''}
@@ -185,7 +196,7 @@ function render() {
         <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users" title="Paid to users + taken by team + still in the pool = 100% of the allocation">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span>${a.ratios.stillInPoolPct ? `<span class="sub">${a.ratios.stillInPoolPct}% still in pool</span>` : ''}</td>
         <td data-label="Taken by team">${takenCell(a)}</td>
-        <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of all received${a.sharedWalletWith.length ? ' (shared)' : ''}`}</span></td>
+        <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of all received${a.sharedWalletWith.length ? ' (shared)' : ''}`}${a.valueUsd?.sold ? ` · ${usdTxt(a.valueUsd.sold)}` : ''}${a.valueUsd?.toOtherWallets ? `<br>+ ${usdTxt(a.valueUsd.toOtherWallets)} to other wallets` : ''}</span></td>
         <td data-label="Team wallet now">${fmt(held)}</td>
       </tr>`;
       return open === a.id ? `${main}<tr class="detail"><td colspan="7">${detailHtml(a)}</td></tr>` : main;
@@ -205,10 +216,10 @@ async function main() {
   render();
   const checks = DATA.checks ?? [];
   if (checks.length && $('#checks')) {
-    const bad = checks.filter((c) => !c.ok).length;
+    const bad = checks.filter((c) => c.ok === false).length;
     $('#checks').innerHTML = `<h2>${bad ? `⚠ ${bad} of ${checks.length} cross-checks failed` : `✓ All ${checks.length} cross-checks passed`}</h2>
       <p class="fine">Each run re-reads the same facts from a second, independent place on-chain and compares.</p>
-      <ul>${checks.map((c) => `<li>${c.ok ? '✓' : '✗'} ${esc(c.name)}${c.detail ? ` <span class="sub">${esc(c.detail)}</span>` : ''}</li>`).join('')}</ul>`;
+      <ul>${checks.map((c) => `<li>${c.ok ? '✓' : c.ok === null ? '–' : '✗'} ${esc(c.name)}${c.detail ? ` <span class="sub">${esc(c.detail)}</span>` : ''}</li>`).join('')}</ul>`;
     $('#checks').hidden = false;
   }
 

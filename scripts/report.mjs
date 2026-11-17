@@ -8,6 +8,9 @@ const lines = [];
 const t = d.totals;
 lines.push(`Block ${d.bestBlock} · ${d.apps.length} apps`);
 lines.push(`Current round #${t.currentRound}: ${b(t.currentRoundToApps)} B3TR to ${t.currentRoundApps} apps (${b(t.currentRoundToTeams)} to team wallets)`);
+const usd = (n) => '$' + Number(n ?? 0).toLocaleString('en-US');
+if (d.prices) lines.push(`Prices: B3TR/VET from ${d.prices.b3trVetPools.map((p) => p.pair + ' ' + p.pool).join(', ') || 'NO POOLS'} · VET/USD from ${d.prices.vetUsdSource ?? 'NONE'} · ${Object.keys(d.prices.b3trUsd ?? {}).length} priced days`);
+lines.push(`At the time: allocated ${usd(t.allocatedUsd)} · taken by teams (net) ${usd(t.takenNetUsd)} · proven sold ${usd(t.soldUsd)} · to other wallets ${usd(t.toOtherWalletsUsd)}`);
 lines.push(`All time: allocated ${b(t.allocated)} · paid to users ${b(t.paidToUsers)} · team share ${b(t.toTeams)} · team withdrawals ${b(t.withdrawnByTeams)} · sold ${b(t.sold)}`);
 lines.push('');
 lines.push('Top 15 this round:');
@@ -40,7 +43,7 @@ lines.push(negative.length ? `CHECK FAILED: negative paid-to-users for ${negativ
 // Independent cross-checks computed by the indexer (contract views vs events).
 lines.push('');
 lines.push('Cross-checks:');
-for (const c of d.checks ?? []) lines.push(`  ${c.ok ? '✓' : '✗ FAILED'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
+for (const c of d.checks ?? []) lines.push(`  ${c.ok ? '✓' : c.ok === null ? '– not run' : '✗ FAILED'} ${c.name}${c.detail ? ` — ${c.detail}` : ''}`);
 if (!(d.checks ?? []).length) lines.push('  (none in this summary)');
 
 // Detail for apps people have asked about.
@@ -60,6 +63,7 @@ for (const name of WATCH) {
   lines.push(`  rewards pool: deposits ${b(a.rewardsPool.deposits)} (team top-ups ${b(a.rewardsPool.depositsByTeam)}) · withdrawn ${b(a.rewardsPool.withdrawnByTeam)} · balance ${b(a.rewardsPool.balanceNow)} · paid to users ${b(a.rewardsPool.paidToUsers)}`);
   lines.push(`  team wallet received: ${Object.entries(rx).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing read'}`);
   lines.push(`  team wallet sent: ${Object.entries(tw.sent).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing'} · balance ${b(tw.balanceNow)}`);
+  if (a.valueUsd) lines.push(`  $ at the time: allocation ${usd(a.valueUsd.allocation)} · taken net ${usd(a.valueUsd.takenNet)} (withdrew ${usd(a.valueUsd.takenGross)}, put back ${usd(a.valueUsd.putBack)}) · sold ${usd(a.valueUsd.sold)} · other wallets ${usd(a.valueUsd.toOtherWallets)} · unpriced ${b(a.valueUsd.unpricedB3tr)} B3TR`);
   lines.push(`  sold ${a.ratios.soldPctOfTeamReceipts ?? '—'}% of all receipts · grants ${b(tw.grants?.total ?? '0')} = ${a.ratios.grantsShareOfReceiptsPct ?? '—'}% of receipts (direct ${b(tw.grants?.direct ?? '0')}) · returned to DAO ${b(tw.grants?.returnedToDao ?? '0')}`);
   for (const v of tw.grants?.via ?? []) lines.push(`    grant via ${v.address}: got ${b(v.grantReceived)} from grants/DAO, forwarded ${b(v.forwarded)}, counted ${b(v.counted)}`);
   for (const x of tw.topSenders ?? []) lines.push(`    from ${x.address} ${x.kind} ${b(x.amount)} (${x.count}×)`);

@@ -64,6 +64,8 @@ export const ABI = parseAbi([
   // Uniswap-V2-style pools (Vexchange V2, VeRocket, BetterSwap … are V2 forks)
   'function token0() view returns (address)',
   'function token1() view returns (address)',
+  'function symbol() view returns (string)',
+  'event Sync(uint112 reserve0, uint112 reserve1)',
   'event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)',
   'event Mint(address indexed sender, uint256 amount0, uint256 amount1)',
 ]);
@@ -77,6 +79,7 @@ export const TOPIC = {
   transfer: toEventSelector('Transfer(address,address,uint256)'),
   swapV2: toEventSelector('Swap(address,uint256,uint256,uint256,uint256,address)'),
   mintV2: toEventSelector('Mint(address,uint256,uint256)'),
+  sync: toEventSelector('Sync(uint112,uint112)'),
   // Uniswap V3 pools, in case one exists for B3TR.
   swapV3: toEventSelector('Swap(address,address,int256,int256,uint160,uint128,int24)'),
 };
