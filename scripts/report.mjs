@@ -17,6 +17,21 @@ for (const a of cur.slice(0, 15)) {
     `  ${a.name.slice(0, 26).padEnd(26)} round ${b(a.current.total).padStart(9)} | all-time ${b(a.allocation.total).padStart(11)} | paid ${String(a.ratios.paidToUsersPctOfAllocation ?? '—').padStart(5)}% | taken by team ${String(a.ratios.takenByTeamPct ?? '—').padStart(5)}% | sold ${b(a.teamWallet.sent.sold).padStart(10)} (${a.ratios.soldPctOfTeamReceipts ?? '—'}%)`,
   );
 }
+// Identity: for every app, paid + taken (net) + still in pool = what
+// VeBetterDAO sent it (team split + rewards-pool deposits from the allocation).
+const broken = d.apps.filter((a) => {
+  const p = a.rewardsPool;
+  const net = BigInt(a.allocation.toTeam) + BigInt(p.withdrawnByTeam) - BigInt(p.depositsByTeam);
+  return BigInt(p.paidToUsers) + net + BigInt(p.balanceNow) !== BigInt(a.allocation.toTeam) + BigInt(p.depositsFromAllocation);
+});
+lines.push(broken.length ? `CHECK FAILED: paid + taken + in pool ≠ received for ${broken.map((a) => a.name).join(', ')}` : 'Checks: paid + taken (net) + still in pool = received, every app ✓');
+const poolIn = d.apps.reduce((x, a) => x + BigInt(a.rewardsPool.depositsFromAllocation), 0n);
+const poolClaimed = d.apps.reduce((x, a) => x + BigInt(a.allocation.toRewardsPool), 0n);
+lines.push(`Checks: allocation deposits into the rewards pool ${b(poolIn)} vs claim events' pool share ${b(poolClaimed)} ${poolIn === poolClaimed ? '✓' : '✗ DIFFERENT'}`);
+const recyclers = d.apps.filter((a) => BigInt(a.rewardsPool.depositsByTeam) > 0n)
+  .sort((x, y) => (BigInt(y.rewardsPool.depositsByTeam) > BigInt(x.rewardsPool.depositsByTeam) ? 1 : -1)).slice(0, 8);
+lines.push('Largest team top-ups (withdraw-and-redeposit made gross "taken" + "paid" exceed 100%):');
+for (const a of recyclers) lines.push(`  ${a.name.slice(0, 26).padEnd(26)} put back ${b(a.rewardsPool.depositsByTeam).padStart(10)} · withdrew ${b(a.rewardsPool.withdrawnByTeam).padStart(10)} · paid ${a.ratios.paidToUsersPctOfAllocation}% + taken ${a.ratios.takenByTeamPct}% (gross ${a.ratios.takenByTeamGrossPct}%) + in pool ${a.ratios.stillInPoolPct}%`);
 // Sanity: paid-to-users can't be negative (deposits − withdrawals − balance).
 const negative = d.apps.filter((a) => BigInt(a.rewardsPool.paidToUsers) < 0n);
 lines.push('');

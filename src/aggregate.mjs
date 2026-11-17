@@ -221,11 +221,19 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         soldPctOfTeamReceipts: pct(sent.sold, receivedExternal > ZERO ? receivedExternal : groupReceived),
         grantsShareOfReceiptsPct: pct(grantsTotal, receivedExternal),
         teamSharePct: pct(allocation.toTeam, allocation.total),
-        // What the team actually took: the official split PLUS withdrawals
-        // from its own rewards pool. On mainnet almost every app's split is
-        // 0%, and teams take B3TR by withdrawing instead (5,818 withdrawals by
-        // Nov 2026) — so the split alone badly understates it.
-        takenByTeamPct: pct(receivedFromVbd, allocation.total),
+        // What the team actually took, NET: the official split plus pool
+        // withdrawals, minus what the team put back into its pool. On mainnet
+        // almost every app's split is 0% and teams take B3TR by withdrawing.
+        // Net, because teams recycle (withdraw, then top the pool up again):
+        // gross withdrawals counted that B3TR twice — once as taken, once as
+        // paid — and paid% + taken% went over 100% (Vinny, 2026-11-16).
+        // With the net figure, every app adds up exactly:
+        //   paid + taken (net) + still in pool = allocation   (100%)
+        // Net can be negative: the team added more than it took.
+        takenByTeamPct: pct(receivedFromVbd - (depositsTotal - depositsFromAllocation), allocation.total),
+        takenByTeamGrossPct: pct(receivedFromVbd, allocation.total),
+        putBackByTeamPct: pct(depositsTotal - depositsFromAllocation, allocation.total),
+        stillInPoolPct: pct(balanceNow, allocation.total),
       },
     };
   });
@@ -244,6 +252,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     allocated: sum(out.map((a) => BigInt(a.allocation.total))),
     toTeams: sum(out.map((a) => BigInt(a.allocation.toTeam))),
     withdrawnByTeams: sum(out.map((a) => BigInt(a.rewardsPool.withdrawnByTeam))),
+    depositsByTeams: sum(out.map((a) => BigInt(a.rewardsPool.depositsByTeam))),
     paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
     // Per WALLET, not per app: a wallet shared by two apps is counted once.
     sold: sum(

@@ -184,8 +184,12 @@ describe('summarize', () => {
     // sold 400 of (450 team share + 100 withdrawn) = 72.7%
     expect(alpha.ratios.soldPctOfTeamReceipts).toBe(72.7);
     expect(beta.ratios.soldPctOfTeamReceipts).toBe(null);
-    // 450 official share + 100 withdrawn, of 1500 allocated.
-    expect(alpha.ratios.takenByTeamPct).toBe(36.6);
+    // Gross: 450 official share + 100 withdrawn, of 1500 allocated.
+    expect(alpha.ratios.takenByTeamGrossPct).toBe(36.6);
+    // Net of the 50 the team put back: 500 of 1500.
+    expect(alpha.ratios.takenByTeamPct).toBe(33.3);
+    // paid 800 + taken 500 + in pool 200 = the 1500 allocated, exactly.
+    expect(alpha.ratios.paidToUsersPctOfAllocation + alpha.ratios.takenByTeamPct + alpha.ratios.stillInPoolPct).toBeCloseTo(100, 0);
     expect(s.totals.withdrawnByTeams).toBe((100n * E18).toString());
   });
 
