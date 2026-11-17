@@ -349,3 +349,24 @@ describe('inflows (grants are not allocation)', () => {
     expect(s.apps[0].teamWallet.sent.sold).toBe((5n * E18).toString());
   });
 });
+
+describe('users per app', async () => {
+  const { emptyPayouts, foldPayouts, userStats } = await import('../src/users.mjs');
+  it('counts distinct receivers per app in 30 / 90 day windows and prunes old rows', () => {
+    const now = 1_800_000_000;
+    const day = 86_400;
+    const c = emptyPayouts();
+    foldPayouts(c, [
+      { at: now - 5 * day, appId: '0xAA', receiver: W1, amount: 10n * E18 },
+      { at: now - 6 * day, appId: '0xaa', receiver: W1.toUpperCase().replace('0X', '0x'), amount: 5n * E18 },
+      { at: now - 40 * day, appId: '0xaa', receiver: W2, amount: 1n * E18 },
+      { at: now - 2 * day, appId: '0xbb', receiver: W2, amount: 1n * E18 },
+      { at: now - 200 * day, appId: '0xaa', receiver: W2, amount: 1n * E18 }, // pruned
+    ], now);
+    expect(c.rows.length).toBe(4);
+    const s = userStats(c, now);
+    expect(s.apps['0xaa']).toEqual({ users30: 1, users90: 2, payouts30: 2, payouts90: 3, b3tr90: 16 });
+    expect(s.apps['0xbb'].users30).toBe(1);
+    expect(s.ecosystem).toEqual({ users30: 2, users90: 2 });
+  });
+});

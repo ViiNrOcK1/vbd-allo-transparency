@@ -55,6 +55,7 @@ export const ABI = parseAbi([
   'event NewDeposit(uint256 amount, bytes32 indexed appId, address indexed depositor)',
   'event TeamWithdrawal(uint256 amount, bytes32 indexed appId, address indexed teamWallet, address withdrawer, string reason)',
   'function totalBalance(bytes32 appId) view returns (uint256)',
+  'event RewardDistributed(uint256 amount, bytes32 indexed appId, address indexed receiver, string proof, address indexed distributor)',
   // Cross-checks (independent views of what the events say)
   'function roundEarnings(uint256 roundId, bytes32 appId) view returns (uint256 totalAmount, uint256 unallocatedAmount, uint256 teamAllocationAmount, uint256 x2EarnRewardsPoolAmount)',
   'function getXAllocationAmount(uint256 cycle) view returns (uint256)',
@@ -76,6 +77,7 @@ export const TOPIC = {
   ),
   deposit: toEventSelector('NewDeposit(uint256,bytes32,address)'),
   withdrawal: toEventSelector('TeamWithdrawal(uint256,bytes32,address,address,string)'),
+  rewardDistributed: toEventSelector('RewardDistributed(uint256,bytes32,address,string,address)'),
   transfer: toEventSelector('Transfer(address,address,uint256)'),
   swapV2: toEventSelector('Swap(address,uint256,uint256,uint256,uint256,address)'),
   mintV2: toEventSelector('Mint(address,uint256,uint256)'),

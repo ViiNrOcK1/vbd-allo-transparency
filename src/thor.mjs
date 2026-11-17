@@ -65,8 +65,28 @@ export function createThor({ node = DEFAULT_NODE, fetchImpl = fetch, retries = 4
         }
         if (page.length < PAGE) break;
         const last = page[page.length - 1].meta.blockNumber;
-        // A single block with ≥1,000 matching logs would loop forever; refuse.
-        if (last === start && added === 0) throw new Error(`more than ${PAGE} logs in block ${start}`);
+        if (last === start && added === 0) {
+          // One block holds ≥1,000 matching logs (a batched payout): page
+          // through that single block by offset, then move past it.
+          for (let offset = PAGE; ; offset += PAGE) {
+            const more = await post('/logs/event', {
+              range: { unit: 'block', from: start, to: start },
+              options: { offset, limit: PAGE, includeIndexes: true },
+              criteriaSet,
+              order: 'asc',
+            });
+            for (const l of more) {
+              const key = `${l.meta.txID}:${l.meta.logIndex ?? `${l.meta.clauseIndex}:${l.topics.join(',')}:${l.data}`}`;
+              if (seen.has(key)) continue;
+              seen.add(key);
+              out.push(l);
+            }
+            if (more.length < PAGE) break;
+          }
+          if (start >= to) break;
+          start += 1;
+          continue;
+        }
         start = last;
       }
       return out;

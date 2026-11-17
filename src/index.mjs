@@ -12,6 +12,7 @@ import { ABI, GRANT_SOURCES, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
 import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from './classify.mjs';
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
+import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
 const args = Object.fromEntries(
@@ -204,6 +205,30 @@ async function main() {
   });
 
   await Promise.all([saveCache('contracts', contracts), saveCache('pools', pools), saveCache('receipts', receipts)]);
+
+  // ── Users per app: distinct wallets paid in the last 30 / 90 days ──
+  let users = null;
+  try {
+    const cached = await loadCache('payouts');
+    const pc = Array.isArray(cached.rows) ? cached : emptyPayouts();
+    const windowStart = Math.max(0, best.number - (WINDOW_DAYS + 10) * 8640);
+    const from = Math.max(pc.lastBlock + 1, windowStart);
+    const pl = await thor.logs([{ address: MAINNET.x2EarnRewardsPool, topic0: TOPIC.rewardDistributed }], from, best.number);
+    foldPayouts(
+      pc,
+      pl.map((l) => {
+        const { args: e } = decode(l);
+        return { at: l.meta.blockTimestamp, appId: e.appId, receiver: e.receiver, amount: e.amount };
+      }),
+      best.timestamp,
+    );
+    pc.lastBlock = best.number;
+    await saveCache('payouts', pc);
+    users = userStats(pc, best.timestamp);
+    log(`payouts: ${pl.length} new, ${pc.rows.length} kept; ecosystem users 30d ${users.ecosystem.users30}, 90d ${users.ecosystem.users90}`);
+  } catch (e) {
+    log(`users per app FAILED: ${e?.message ?? e}`);
+  }
 
   // ── Prices: B3TR/VET from the B3TR–VVET pools' Sync events × VET/USD ──
   const poolMeta = await loadCache('poolmeta'); // pool → { other, symbol, b3trIs0 }
@@ -422,6 +447,7 @@ async function main() {
         bestBlock: best.number,
         source: 'VeChain mainnet, read directly from the VeBetterDAO contracts',
         checks,
+        users,
         prices: {
           method: 'Each transfer is valued at that UTC day’s B3TR price: the last trade of the day in the deepest B3TR–VVET pool on VeChain, times that day’s VET/USD close.',
           b3trVetPools: vetPools.map((p) => ({ pool: p, pair: `B3TR/${poolMeta[p].symbol}` })),

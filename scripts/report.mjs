@@ -20,6 +20,19 @@ for (const a of cur.slice(0, 15)) {
     `  ${a.name.slice(0, 26).padEnd(26)} round ${b(a.current.total).padStart(9)} | all-time ${b(a.allocation.total).padStart(11)} | paid ${String(a.ratios.paidToUsersPctOfAllocation ?? '—').padStart(5)}% | taken by team ${String(a.ratios.takenByTeamPct ?? '—').padStart(5)}% | sold ${b(a.teamWallet.sent.sold).padStart(10)} (${a.ratios.soldPctOfTeamReceipts ?? '—'}%)`,
   );
 }
+// Users per app (distinct wallets paid), last 30 / 90 days.
+if (d.users) {
+  const u = d.users;
+  const rows = d.apps
+    .map((a) => ({ name: a.name, alloc: a.current ? BigInt(a.current.total) : 0n, ...(u.apps[a.id.toLowerCase()] ?? { users30: 0, users90: 0, payouts30: 0, payouts90: 0, b3tr90: 0 }) }))
+    .sort((x, y) => y.users30 - x.users30);
+  lines.push('', `Users (distinct wallets paid) — ecosystem: ${u.ecosystem.users30} in 30 days, ${u.ecosystem.users90} in 90 days`);
+  lines.push('  app                            users30  users90  payouts30  B3TR paid 90d  alloc this round');
+  for (const r of rows.filter((r) => r.users90 > 0 || r.alloc > 0n)) {
+    lines.push(`  ${r.name.slice(0, 30).padEnd(30)} ${String(r.users30).padStart(7)}  ${String(r.users90).padStart(7)}  ${String(r.payouts30).padStart(9)}  ${String(r.b3tr90).padStart(13)}  ${b(r.alloc).padStart(10)}`);
+  }
+} else lines.push('', 'Users per app: not available this run');
+
 // Identity: for every app, paid + taken (net) + still in pool = what
 // VeBetterDAO sent it (team split + rewards-pool deposits from the allocation).
 const broken = d.apps.filter((a) => {
