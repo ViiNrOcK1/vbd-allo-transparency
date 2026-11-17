@@ -16,7 +16,19 @@ export const MAINNET = {
   emissions: '0xDf94739bd169C84fe6478D8420Bb807F1f47b135',
   b3trGovernor: '0x1c65C25fABe2fc1bCb82f253fA0C916a322f777C',
   grantsManager: '0x055d20914657834c914d7c44bf65b566ab4b45a2',
+  timelock: '0x7B7EaF620d88E38782c6491D7Ce0B8D8cF3227e4',
+  b3trMultiSig: '0x4Dd13fcb7b4f7DC19048ce0d23aAEbbDB3f3a1d9',
 };
+
+/**
+ * Where grants and other DAO / foundation money comes FROM (lower-case).
+ * GrantsManager pays milestone grants; the Treasury and Timelock pay what
+ * governance proposals approve; the B3TR multisig is the foundation's.
+ * B3TR arriving from any of these is "grants / DAO", not allocation.
+ */
+export const GRANT_SOURCES = new Set(
+  [MAINNET.grantsManager, MAINNET.treasury, MAINNET.timelock, MAINNET.b3trMultiSig].map((a) => a.toLowerCase()),
+);
 
 /** VeBetterDAO's own contracts, by lower-case address → label. */
 export const VBD_CONTRACTS = Object.fromEntries(
@@ -43,6 +55,9 @@ export const ABI = parseAbi([
   'event NewDeposit(uint256 amount, bytes32 indexed appId, address indexed depositor)',
   'event TeamWithdrawal(uint256 amount, bytes32 indexed appId, address indexed teamWallet, address withdrawer, string reason)',
   'function totalBalance(bytes32 appId) view returns (uint256)',
+  // Cross-checks (independent views of what the events say)
+  'function roundEarnings(uint256 roundId, bytes32 appId) view returns (uint256 totalAmount, uint256 unallocatedAmount, uint256 teamAllocationAmount, uint256 x2EarnRewardsPoolAmount)',
+  'function getXAllocationAmount(uint256 cycle) view returns (uint256)',
   // ERC-20
   'event Transfer(address indexed from, address indexed to, uint256 value)',
   'function balanceOf(address) view returns (uint256)',

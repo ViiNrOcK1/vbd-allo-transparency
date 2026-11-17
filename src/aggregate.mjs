@@ -1,7 +1,7 @@
 // Turn decoded events into the per-app summary the page shows. Pure.
 // Amounts are BigInt wei here and decimal strings in the output JSON.
 
-import { KINDS } from './classify.mjs';
+import { IN_KINDS, KINDS } from './classify.mjs';
 
 const ZERO = 0n;
 const sum = (xs) => xs.reduce((a, b) => a + b, ZERO);
@@ -29,6 +29,8 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   const walletsOf = new Map();
   for (const a of apps) walletsOf.set(a.id, new Set([a.teamWallet.toLowerCase()]));
   for (const c of claims) walletsOf.get(c.appId)?.add(c.recipient.toLowerCase());
+  // A withdrawal can go to a wallet that never received a claim.
+  for (const w of withdrawals) walletsOf.get(w.appId)?.add(w.teamWallet.toLowerCase());
 
   // Which apps share a wallet — their wallet flows cannot be split per app.
   const appsOfWallet = new Map();
@@ -47,6 +49,19 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   // after a round ends, apps claim one by one; showing a half-claimed round as
   // "current" would make allocations look like they collapsed.
   const currentRound = pickCurrentRound(claims);
+
+  // Round boundaries for timing withdrawals: the first claim of round N is
+  // made just after round N ends. A withdrawal is counted in the first round
+  // whose boundary is at or after it (rounds are a week; this is approximate
+  // to a few hours and only used for the per-round view).
+  const boundary = new Map();
+  for (const c of claims) if (c.at != null) boundary.set(c.round, Math.min(boundary.get(c.round) ?? Infinity, c.at));
+  const bounds = [...boundary.entries()].sort((a, b) => a[0] - b[0]);
+  const roundOfTime = (t) => {
+    if (t == null) return null;
+    for (const [r, at] of bounds) if (t <= at) return r;
+    return (bounds.at(-1)?.[0] ?? 0) + 1; // after the last claimed round: the round in progress
+  };
 
   const out = apps.map((app) => {
     const myClaims = claims.filter((c) => c.appId === app.id).sort((a, b) => a.round - b.round);
@@ -74,14 +89,27 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     for (const w of myWallets) for (const other of appsOfWallet.get(w) ?? []) if (other !== app.id) sharedWith.add(other);
 
     const sent = Object.fromEntries(KINDS.map((k) => [k, ZERO]));
+    const received = Object.fromEntries(IN_KINDS.map((k) => [k, ZERO]));
     const recipients = new Map();
+    const senders = new Map();
+    const sales = [];
     let walletBalance = ZERO;
     for (const w of myWallets) {
       const flows = wallets[w];
       if (!flows) continue;
       walletBalance += flows.balance;
+      for (const f of flows.inflows ?? []) {
+        received[f.kind] = (received[f.kind] ?? ZERO) + f.value;
+        if (f.kind === 'internal') continue;
+        const key = f.from.toLowerCase();
+        const s = senders.get(key) ?? { address: key, kind: f.kind, amount: ZERO, count: 0 };
+        s.amount += f.value;
+        s.count += 1;
+        senders.set(key, s);
+      }
       for (const f of flows.outflows) {
         sent[f.kind] = (sent[f.kind] ?? ZERO) + f.value;
+        if (f.kind === 'sold' && f.txId) sales.push(f);
         if (f.kind === 'internal') continue;
         const key = f.to.toLowerCase();
         const r = recipients.get(key) ?? { address: key, kind: f.kind, amount: ZERO, count: 0 };
@@ -95,6 +123,11 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     // percentage has to be measured against the whole group's receipts —
     // otherwise one app carries every app's sales (it read 236% in testing).
     const groupReceived = receivedFromVbd + sum([...sharedWith].map((id) => receivedOf.get(id) ?? ZERO));
+    // EVERYTHING that came into the wallet(s) from outside — allocation,
+    // withdrawals, grants/DAO, purchases, transfers. B3TR is interchangeable,
+    // so a sale can't be pinned to one source; it's measured against all of
+    // it, and the grants line is shown beside it (B3TR Beach's 605k was a grant).
+    const receivedExternal = sum(Object.entries(received).filter(([k]) => k !== 'internal').map(([, v]) => v));
 
     return {
       id: app.id,
@@ -107,7 +140,20 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       rounds: myClaims.length,
       firstRound: myClaims[0]?.round ?? null,
       lastRound: myClaims.at(-1)?.round ?? null,
-      perRound: myClaims.map((c) => ({ round: c.round, total: c.total.toString() })),
+      perRound: (() => {
+        const wd = new Map();
+        for (const w of myWithdrawals) {
+          const r = roundOfTime(w.at);
+          if (r != null) wd.set(r, (wd.get(r) ?? ZERO) + w.amount);
+        }
+        const rounds = [...new Set([...myClaims.map((c) => c.round), ...wd.keys()])].sort((a, b) => a - b);
+        const byRound = new Map(myClaims.map((c) => [c.round, c]));
+        return rounds.map((r) => ({
+          round: r,
+          total: (byRound.get(r)?.total ?? ZERO).toString(),
+          withdrawn: (wd.get(r) ?? ZERO).toString(),
+        }));
+      })(),
       current: (() => {
         const c = myClaims.find((x) => x.round === currentRound);
         return c ? { round: c.round, total: c.total.toString(), toTeam: c.toTeam.toString(), toRewardsPool: c.toPool.toString() } : null;
@@ -125,6 +171,18 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         receivedFromVeBetterDAO: receivedFromVbd.toString(),
         // Equal to the above unless the wallet is shared; then it covers every app sharing it.
         receivedByWalletGroup: groupReceived.toString(),
+        /** Every B3TR transfer INTO the wallet(s), by where it came from. */
+        received: str(received),
+        receivedExternal: receivedExternal.toString(),
+        /** The largest proven sales, with their transactions, for anyone to check. */
+        largestSales: sales
+          .sort((a, b) => (b.value > a.value ? 1 : b.value < a.value ? -1 : 0))
+          .slice(0, 5)
+          .map((f) => ({ txId: f.txId, at: f.at ?? null, amount: f.value.toString() })),
+        topSenders: [...senders.values()]
+          .sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0))
+          .slice(0, 10)
+          .map((s) => ({ ...s, amount: s.amount.toString() })),
         balanceNow: walletBalance.toString(),
         sent: str(sent),
         topRecipients: [...recipients.values()]
@@ -134,7 +192,10 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       },
       ratios: {
         paidToUsersPctOfAllocation: pct(paidToUsers, allocation.total),
-        soldPctOfTeamReceipts: pct(sent.sold, groupReceived),
+        // Sold as a share of ALL B3TR the wallet received (falls back to the
+        // VeBetterDAO receipts when inflows weren't read).
+        soldPctOfTeamReceipts: pct(sent.sold, receivedExternal > ZERO ? receivedExternal : groupReceived),
+        grantsShareOfReceiptsPct: pct(received.grants_dao, receivedExternal),
         teamSharePct: pct(allocation.toTeam, allocation.total),
         // What the team actually took: the official split PLUS withdrawals
         // from its own rewards pool. On mainnet almost every app's split is

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decodeEventLog, encodeAbiParameters, encodeEventTopics, parseAbiParameters } from 'viem';
 import { ABI, MAINNET, TOPIC, VBD_CONTRACTS } from '../src/abi.mjs';
-import { classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from '../src/classify.mjs';
+import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from '../src/classify.mjs';
 import { pct, pickCurrentRound, summarize } from '../src/aggregate.mjs';
 import { createThor } from '../src/thor.mjs';
 
@@ -238,5 +238,69 @@ describe('summarize', () => {
   it('pct', () => {
     expect(pct(1n, 3n)).toBe(33.3);
     expect(pct(1n, 0n)).toBe(null);
+  });
+});
+
+describe('inflows (grants are not allocation)', () => {
+  const own = new Set([W1]);
+  it('labels each source literally', () => {
+    const c = (from, extra = {}) => classifyInflow({ from, ownWallets: own, vbdContracts: VBD_CONTRACTS, isContract: false, isB3trPool: false, ...extra });
+    expect(c(XAP)).toBe('allocation');
+    expect(c(MAINNET.x2EarnRewardsPool)).toBe('pool_withdrawal');
+    expect(c(MAINNET.grantsManager)).toBe('grants_dao');
+    expect(c(MAINNET.treasury)).toBe('grants_dao');
+    expect(c(MAINNET.timelock)).toBe('grants_dao');
+    expect(c(MAINNET.b3trMultiSig.toUpperCase().replace('0X', '0x'))).toBe('grants_dao');
+    expect(c(MAINNET.vot3)).toBe('from_vot3');
+    expect(c(MAINNET.voterRewards)).toBe('vbd_other');
+    expect(c(W1)).toBe('internal');
+    expect(c(POOL, { isContract: true, isB3trPool: true })).toBe('bought');
+    expect(c(POOL, { isContract: true })).toBe('other_contract');
+    expect(c(W2)).toBe('other_wallet');
+  });
+
+  it('a sold grant is measured against everything received, and the grant is shown', () => {
+    const s = summarize({
+      apps: [{ id: A, name: 'Beach', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
+      claims: [{ appId: A, round: 1, total: 100n * E18, toTeam: 0n, toPool: 100n * E18, unallocated: 0n, recipient: W1, at: 100 }],
+      deposits: [{ appId: A, amount: 100n * E18, depositor: XAP }],
+      withdrawals: [{ appId: A, amount: 10n * E18, teamWallet: W1, reason: '', at: 50 }],
+      poolBalances: { [A]: 0n },
+      wallets: {
+        [W1]: {
+          balance: 0n,
+          inflows: [
+            { from: MAINNET.x2EarnRewardsPool.toLowerCase(), value: 10n * E18, kind: 'pool_withdrawal' },
+            { from: MAINNET.grantsManager, value: 600n * E18, kind: 'grants_dao' },
+          ],
+          outflows: [{ to: POOL, value: 605n * E18, kind: 'sold', txId: '0xabc', at: 200 }],
+        },
+      },
+      xAllocationPool: MAINNET.xAllocationPool,
+    });
+    const tw = s.apps[0].teamWallet;
+    expect(tw.received.grants_dao).toBe((600n * E18).toString());
+    expect(tw.receivedExternal).toBe((610n * E18).toString());
+    // Before: 605 sold / 10 received = 6050%. Now against all 610 received.
+    expect(s.apps[0].ratios.soldPctOfTeamReceipts).toBe(99.1);
+    expect(s.apps[0].ratios.grantsShareOfReceiptsPct).toBe(98.3);
+    expect(tw.largestSales).toEqual([{ txId: '0xabc', at: 200, amount: (605n * E18).toString() }]);
+    expect(tw.topSenders[0]).toMatchObject({ kind: 'grants_dao', count: 1 });
+    // Withdrawal at t=50 lands in round 1 (its first claim is at t=100).
+    expect(s.apps[0].perRound).toEqual([{ round: 1, total: (100n * E18).toString(), withdrawn: (10n * E18).toString() }]);
+  });
+
+  it('a withdrawal to a wallet that never got a claim is still that app’s wallet', () => {
+    const s = summarize({
+      apps: [{ id: A, name: 'X', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
+      claims: [],
+      deposits: [],
+      withdrawals: [{ appId: A, amount: 5n * E18, teamWallet: W2, reason: '', at: 1 }],
+      poolBalances: {},
+      wallets: { [W2]: { balance: 0n, inflows: [], outflows: [{ to: POOL, value: 5n * E18, kind: 'sold', txId: '0x1' }] } },
+      xAllocationPool: MAINNET.xAllocationPool,
+    });
+    expect(s.apps[0].teamWallets).toContain(W2);
+    expect(s.apps[0].teamWallet.sent.sold).toBe((5n * E18).toString());
   });
 });

@@ -133,3 +133,9 @@ ol.recips li { margin: 3px 0; }
 }
 .sortbar { display: none; }
 .sortbar select { padding: 9px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font: inherit; }
+
+.checks { margin: 1.5rem 0; padding: 1rem 1.25rem; border: 1px solid var(--line, #ccc4); border-radius: 10px; }
+.checks h2 { font-size: 1rem; margin: 0 0 .25rem; }
+.checks ul { margin: .5rem 0 0; padding-left: 0; list-style: none; font-size: .9rem; }
+.checks li { margin: .25rem 0; }
+.checks .sub { display: block; opacity: .7; font-size: .8rem; margin-left: 1.1rem; }

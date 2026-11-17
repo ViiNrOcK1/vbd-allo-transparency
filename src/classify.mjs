@@ -5,7 +5,7 @@
 // cannot prove is reported as "other", with the address, so readers can look
 // for themselves. Nobody is accused by inference.
 
-import { TOPIC } from './abi.mjs';
+import { GRANT_SOURCES, MAINNET, TOPIC } from './abi.mjs';
 
 export const KINDS = /** @type {const} */ ([
   'sold', // the tx swapped in a B3TR pool
@@ -64,4 +64,33 @@ export function classifyOutflow({ to, ownWallets, vbdContracts, isContract, pool
 export function poolHoldsB3tr(token0, token1, b3tr) {
   const b = b3tr.toLowerCase();
   return [token0, token1].some((t) => typeof t === 'string' && t.toLowerCase() === b);
+}
+
+export const IN_KINDS = /** @type {const} */ ([
+  'allocation', // team share of a round, from the XAllocationPool
+  'pool_withdrawal', // withdrawn from the app's own rewards pool
+  'grants_dao', // GrantsManager, Treasury, Timelock or the foundation multisig
+  'bought', // out of a B3TR swap pool (a purchase)
+  'from_vot3', // converted back from VOT3
+  'vbd_other', // another VeBetterDAO contract
+  'internal', // from another wallet of the same app / team
+  'other_contract',
+  'other_wallet',
+]);
+
+const XAP = MAINNET.xAllocationPool.toLowerCase();
+const POOL = MAINNET.x2EarnRewardsPool.toLowerCase();
+const VOT3 = MAINNET.vot3.toLowerCase();
+
+/** Where one transfer INTO a team wallet came from. Pure. */
+export function classifyInflow({ from, ownWallets, vbdContracts, isContract, isB3trPool }) {
+  const a = String(from).toLowerCase();
+  if (ownWallets.has(a)) return 'internal';
+  if (a === XAP) return 'allocation';
+  if (a === POOL) return 'pool_withdrawal';
+  if (GRANT_SOURCES.has(a)) return 'grants_dao';
+  if (a === VOT3) return 'from_vot3';
+  if (vbdContracts[a]) return 'vbd_other';
+  if (isB3trPool) return 'bought';
+  return isContract ? 'other_contract' : 'other_wallet';
 }

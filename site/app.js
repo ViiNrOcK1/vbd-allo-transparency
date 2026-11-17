@@ -1,6 +1,7 @@
 // Renders data/summary.json. No framework, no tracking.
 
 const EXPLORER = 'https://explore.vechain.org/accounts/';
+const TX = 'https://explore.vechain.org/transactions/';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
@@ -22,6 +23,17 @@ const KIND_LABEL = {
   rewards_pool: 'Back into the rewards pool',
   vot3: 'Converted to VOT3',
   vbd_contract: 'Other VeBetterDAO contract',
+  other_contract: 'Other contract',
+  other_wallet: 'Other wallet',
+};
+
+const IN_LABEL = {
+  allocation: 'Allocation (team share)',
+  pool_withdrawal: 'Withdrawn from its rewards pool',
+  grants_dao: 'Grants / DAO / foundation',
+  bought: 'Bought (out of a B3TR pool)',
+  from_vot3: 'Converted back from VOT3',
+  vbd_other: 'Other VeBetterDAO contract',
   other_contract: 'Other contract',
   other_wallet: 'Other wallet',
 };
@@ -75,6 +87,16 @@ function detailHtml(a) {
   const recips = a.teamWallet.topRecipients
     .map((r) => `<li><a class="addr" href="${EXPLORER}${esc(r.address)}" target="_blank" rel="noopener">${esc(short(r.address))}</a> · ${fmt(b3(r.amount))} B3TR · ${esc(KIND_LABEL[r.kind] ?? r.kind)} (${r.count}×)</li>`)
     .join('');
+  const rx = a.teamWallet.received ?? {};
+  const rxRows = Object.entries(IN_LABEL)
+    .map(([k, label]) => [label, b3(rx[k])])
+    .filter(([, v]) => v > 0)
+    .map(([label, v]) => `<dt>${esc(label)}</dt><dd>${fmt(v)}</dd>`)
+    .join('');
+  const grants = b3(rx.grants_dao);
+  const sales = (a.teamWallet.largestSales ?? [])
+    .map((s) => `<li><a class="addr" href="${TX}${esc(s.txId)}" target="_blank" rel="noopener">${esc(short(s.txId))}</a> · ${fmt(b3(s.amount))} B3TR${s.at ? ` · ${esc(new Date(s.at * 1000).toISOString().slice(0, 10))}` : ''}</li>`)
+    .join('');
   const wallets = a.teamWallets
     .map((w) => `<a class="addr" href="${EXPLORER}${esc(w)}" target="_blank" rel="noopener">${esc(short(w))}</a>${w === a.currentTeamWallet ? ' (current)' : ''}`)
     .join(', ');
@@ -112,6 +134,9 @@ function detailHtml(a) {
       </dl>
       <p class="fine">Wallet${a.teamWallets.length > 1 ? 's' : ''}: ${wallets}${a.sharedWalletWith.length ? '<br>Shared with other apps: flows can’t be split between them.' : ''}</p>
     </div>
+    ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
+      <p class="fine">${grants > 0 ? `Includes ${fmt(grants)} B3TR of grants / DAO funding. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
+    ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check.</p></div>` : ''}
     ${recips ? `<div class="dbox"><h3>Largest recipients</h3><ol class="recips">${recips}</ol></div>` : ''}
   </div>`;
 }
@@ -139,7 +164,7 @@ function render() {
         <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span></td>
         <td data-label="Taken by team">${pctTxt(teamPct < 0 ? null : teamPct)}<span class="sub">${a.ratios.teamSharePct ? `${a.ratios.teamSharePct}% official share` : 'via withdrawals'}</span></td>
-        <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of team receipts${a.sharedWalletWith.length ? ' (shared)' : ''}`}</span></td>
+        <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of all received${a.sharedWalletWith.length ? ' (shared)' : ''}`}</span></td>
         <td data-label="Team wallet now">${fmt(held)}</td>
       </tr>`;
       return open === a.id ? `${main}<tr class="detail"><td colspan="7">${detailHtml(a)}</td></tr>` : main;
@@ -157,6 +182,14 @@ async function main() {
   const head = document.getElementById('curHead');
   if (head) head.textContent = `Round #${DATA.totals.currentRound}`;
   render();
+  const checks = DATA.checks ?? [];
+  if (checks.length && $('#checks')) {
+    const bad = checks.filter((c) => !c.ok).length;
+    $('#checks').innerHTML = `<h2>${bad ? `⚠ ${bad} of ${checks.length} cross-checks failed` : `✓ All ${checks.length} cross-checks passed`}</h2>
+      <p class="fine">Each run re-reads the same facts from a second, independent place on-chain and compares.</p>
+      <ul>${checks.map((c) => `<li>${c.ok ? '✓' : '✗'} ${esc(c.name)}${c.detail ? ` <span class="sub">${esc(c.detail)}</span>` : ''}</li>`).join('')}</ul>`;
+    $('#checks').hidden = false;
+  }
 
   $('#q').addEventListener('input', render);
   $('#activeOnly').addEventListener('change', render);
