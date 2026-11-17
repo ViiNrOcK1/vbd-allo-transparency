@@ -93,7 +93,11 @@ function detailHtml(a) {
     .filter(([, v]) => v > 0)
     .map(([label, v]) => `<dt>${esc(label)}</dt><dd>${fmt(v)}</dd>`)
     .join('');
-  const grants = b3(rx.grants_dao);
+  const g = a.teamWallet.grants ?? { total: rx.grants_dao ?? '0', via: [] };
+  const grants = b3(g.total);
+  const viaTxt = (g.via ?? [])
+    .map((v) => `<a class="addr" href="${EXPLORER}${esc(v.address)}" target="_blank" rel="noopener">${esc(short(v.address))}</a> (${fmt(b3(v.counted))})`)
+    .join(', ');
   const sales = (a.teamWallet.largestSales ?? [])
     .map((s) => `<li><a class="addr" href="${TX}${esc(s.txId)}" target="_blank" rel="noopener">${esc(short(s.txId))}</a> · ${fmt(b3(s.amount))} B3TR${s.at ? ` · ${esc(new Date(s.at * 1000).toISOString().slice(0, 10))}` : ''}</li>`)
     .join('');
@@ -135,8 +139,8 @@ function detailHtml(a) {
       <p class="fine">Wallet${a.teamWallets.length > 1 ? 's' : ''}: ${wallets}${a.sharedWalletWith.length ? '<br>Shared with other apps: flows can’t be split between them.' : ''}</p>
     </div>
     ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
-      <p class="fine">${grants > 0 ? `Includes ${fmt(grants)} B3TR of grants / DAO funding. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
-    ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check.</p></div>` : ''}
+      <p class="fine">${grants > 0 ? `<strong>About ${fmt(grants)} B3TR of this was grant / DAO funding</strong>${viaTxt ? `, partly passed on by ${viaTxt}, which received it from VeBetterDAO` : ''}. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
+    ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check. B3TR moved to another wallet or an exchange first and sold there isn’t counted, so “sold” is a floor.</p></div>` : ''}
     ${recips ? `<div class="dbox"><h3>Largest recipients</h3><ol class="recips">${recips}</ol></div>` : ''}
   </div>`;
 }

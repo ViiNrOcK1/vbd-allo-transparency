@@ -22,7 +22,7 @@ export function pct(part, whole) {
  * @param {Record<string,{balance:bigint,outflows:{to:string,value:bigint,kind:string}[]}>} input.wallets lower-case wallet → flows
  * @param {string} input.xAllocationPool
  */
-export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool }) {
+export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {} }) {
   const xap = xAllocationPool.toLowerCase();
 
   // Every wallet that ever received an app's team share, plus the current one.
@@ -129,6 +129,23 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     // it, and the grants line is shown beside it (B3TR Beach's 605k was a grant).
     const receivedExternal = sum(Object.entries(received).filter(([k]) => k !== 'internal').map(([, v]) => v));
 
+    // Grants: direct (B3TR from a grant source; VOT3 grants count as far as
+    // the wallet converted VOT3 back to B3TR) plus ONE hop — a wallet that got
+    // a grant and forwarded B3TR here. Counted up to the smaller of what it
+    // got as a grant and what it forwarded; it's labelled "via" so readers can
+    // check the address themselves.
+    const directVot3 = sum(myWallets.map((w) => grantsTo[w]?.vot3 ?? ZERO));
+    const grantsDirect = received.grants_dao + (directVot3 < received.from_vot3 ? directVot3 : received.from_vot3);
+    const via = [...senders.values()]
+      .filter((s) => (s.kind === 'other_wallet' || s.kind === 'other_contract') && grantsTo[s.address])
+      .map((s) => {
+        const g = grantsTo[s.address].b3tr + grantsTo[s.address].vot3;
+        return { address: s.address, forwarded: s.amount, grantReceived: g, counted: g < s.amount ? g : s.amount };
+      })
+      .filter((v) => v.counted > ZERO)
+      .sort((a, b) => (b.counted > a.counted ? 1 : -1));
+    const grantsTotal = grantsDirect + sum(via.map((v) => v.counted));
+
     return {
       id: app.id,
       name: app.name,
@@ -174,6 +191,11 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         /** Every B3TR transfer INTO the wallet(s), by where it came from. */
         received: str(received),
         receivedExternal: receivedExternal.toString(),
+        grants: {
+          direct: grantsDirect.toString(),
+          via: via.slice(0, 5).map((v) => str(v)),
+          total: grantsTotal.toString(),
+        },
         /** The largest proven sales, with their transactions, for anyone to check. */
         largestSales: sales
           .sort((a, b) => (b.value > a.value ? 1 : b.value < a.value ? -1 : 0))
@@ -195,7 +217,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         // Sold as a share of ALL B3TR the wallet received (falls back to the
         // VeBetterDAO receipts when inflows weren't read).
         soldPctOfTeamReceipts: pct(sent.sold, receivedExternal > ZERO ? receivedExternal : groupReceived),
-        grantsShareOfReceiptsPct: pct(received.grants_dao, receivedExternal),
+        grantsShareOfReceiptsPct: pct(grantsTotal, receivedExternal),
         teamSharePct: pct(allocation.toTeam, allocation.total),
         // What the team actually took: the official split PLUS withdrawals
         // from its own rewards pool. On mainnet almost every app's split is

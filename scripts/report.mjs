@@ -45,7 +45,8 @@ for (const name of WATCH) {
   lines.push(`  rewards pool: deposits ${b(a.rewardsPool.deposits)} (team top-ups ${b(a.rewardsPool.depositsByTeam)}) · withdrawn ${b(a.rewardsPool.withdrawnByTeam)} · balance ${b(a.rewardsPool.balanceNow)} · paid to users ${b(a.rewardsPool.paidToUsers)}`);
   lines.push(`  team wallet received: ${Object.entries(rx).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing read'}`);
   lines.push(`  team wallet sent: ${Object.entries(tw.sent).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing'} · balance ${b(tw.balanceNow)}`);
-  lines.push(`  sold ${a.ratios.soldPctOfTeamReceipts ?? '—'}% of all receipts · grants ${a.ratios.grantsShareOfReceiptsPct ?? '—'}% of receipts`);
+  lines.push(`  sold ${a.ratios.soldPctOfTeamReceipts ?? '—'}% of all receipts · grants ${b(tw.grants?.total ?? '0')} = ${a.ratios.grantsShareOfReceiptsPct ?? '—'}% of receipts (direct ${b(tw.grants?.direct ?? '0')})`);
+  for (const v of tw.grants?.via ?? []) lines.push(`    grant via ${v.address}: got ${b(v.grantReceived)} from grants/DAO, forwarded ${b(v.forwarded)}, counted ${b(v.counted)}`);
   for (const x of tw.topSenders ?? []) lines.push(`    from ${x.address} ${x.kind} ${b(x.amount)} (${x.count}×)`);
   for (const x of tw.largestSales ?? []) lines.push(`    sale ${b(x.amount)} tx ${x.txId} ${x.at ? new Date(x.at * 1000).toISOString().slice(0, 10) : ''}`);
 }

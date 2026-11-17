@@ -8,7 +8,7 @@
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { decodeEventLog, decodeFunctionResult, encodeFunctionData, pad } from 'viem';
-import { ABI, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
+import { ABI, GRANT_SOURCES, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
 import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from './classify.mjs';
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
@@ -253,8 +253,28 @@ async function main() {
     add('cross-checks ran', false, String(e?.message ?? e).slice(0, 200));
   }
 
+  // ── Grants / DAO payouts, in B3TR and VOT3, to ANY address ──
+  // A grant is often paid to a founder's or project wallet and only then moved
+  // to the team wallet (B3TR Beach's was), so looking only at the team
+  // wallet's direct senders misses it. One hop is traced in aggregate.mjs.
+  const grantCriteria = [MAINNET.b3tr, MAINNET.vot3].flatMap((token) =>
+    [...GRANT_SOURCES].map((src) => ({ address: token, topic0: TOPIC.transfer, topic1: pad(src, { size: 32 }) })),
+  );
+  const grantLogs = await thor.logs(grantCriteria, 0, best.number);
+  const grantsTo = {}; // recipient → { b3tr, vot3 }
+  for (const l of grantLogs) {
+    const { args: e } = decode(l);
+    const to = e.to.toLowerCase();
+    if (GRANT_SOURCES.has(to)) continue; // moves between DAO contracts
+    const token = String(l.address).toLowerCase() === MAINNET.vot3.toLowerCase() ? 'vot3' : 'b3tr';
+    grantsTo[to] ??= { b3tr: 0n, vot3: 0n };
+    grantsTo[to][token] += e.value;
+  }
+  log(`${grantLogs.length} grant / DAO transfers to ${Object.keys(grantsTo).length} addresses`);
+
   const summary = summarize({
     apps,
+    grantsTo,
     claims,
     deposits,
     withdrawals,

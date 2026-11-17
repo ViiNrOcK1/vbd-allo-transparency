@@ -290,6 +290,36 @@ describe('inflows (grants are not allocation)', () => {
     expect(s.apps[0].perRound).toEqual([{ round: 1, total: (100n * E18).toString(), withdrawn: (10n * E18).toString() }]);
   });
 
+  it('a grant paid to another wallet and forwarded is traced one hop', () => {
+    const FOUNDER = '0x' + '3'.repeat(40);
+    const s = summarize({
+      apps: [{ id: A, name: 'Beach', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
+      claims: [],
+      deposits: [],
+      withdrawals: [],
+      poolBalances: {},
+      wallets: {
+        [W1]: {
+          balance: 0n,
+          inflows: [
+            { from: FOUNDER, value: 800n * E18, kind: 'other_wallet' },
+            { from: MAINNET.vot3.toLowerCase(), value: 400n * E18, kind: 'from_vot3' },
+          ],
+          outflows: [],
+        },
+      },
+      xAllocationPool: MAINNET.xAllocationPool,
+      // The founder got 600 as a grant (forwarded 800: 200 of it from elsewhere);
+      // the team wallet got a 500 VOT3 grant and converted 400 of it.
+      grantsTo: { [FOUNDER]: { b3tr: 600n * E18, vot3: 0n }, [W1]: { b3tr: 0n, vot3: 500n * E18 } },
+    });
+    const g = s.apps[0].teamWallet.grants;
+    expect(g.direct).toBe((400n * E18).toString());
+    expect(g.via[0]).toMatchObject({ address: FOUNDER, counted: (600n * E18).toString() });
+    expect(g.total).toBe((1000n * E18).toString());
+    expect(s.apps[0].ratios.grantsShareOfReceiptsPct).toBe(83.3);
+  });
+
   it('a withdrawal to a wallet that never got a claim is still that app’s wallet', () => {
     const s = summarize({
       apps: [{ id: A, name: 'X', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
