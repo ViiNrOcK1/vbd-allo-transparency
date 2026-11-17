@@ -374,6 +374,7 @@ async function main() {
           b3trVetPools: vetPools.map((p) => ({ pool: p, pair: `B3TR/${poolMeta[p].symbol}` })),
           vetUsdSource: vet.source || null,
           b3trUsd: priceSeries,
+          vetUsd: Object.fromEntries(Object.entries(priceCache.vetUsd).filter(([d]) => d >= dayOf(fromTs)).sort()),
         },
         contracts: MAINNET,
         ...summary,
