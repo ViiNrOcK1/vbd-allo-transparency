@@ -46,6 +46,12 @@ const poolClaimed = d.apps.reduce((x, a) => x + BigInt(a.allocation.toRewardsPoo
 lines.push(`Checks: allocation deposits into the rewards pool ${b(poolIn)} vs claim events' pool share ${b(poolClaimed)} ${poolIn === poolClaimed ? '✓' : '✗ DIFFERENT'}`);
 const recyclers = d.apps.filter((a) => BigInt(a.rewardsPool.depositsByTeam) > 0n)
   .sort((x, y) => (BigInt(y.rewardsPool.depositsByTeam) > BigInt(x.rewardsPool.depositsByTeam) ? 1 : -1)).slice(0, 8);
+const byEnd = [...d.apps].filter((a) => a.ratios.toEndorsersPct).sort((x, y) => y.ratios.toEndorsersPct - x.ratios.toEndorsersPct).slice(0, 10);
+lines.push(`Paid to endorsers, total ${b(t.toEndorsers ?? '0')} — top apps by share of allocation:`);
+for (const a of byEnd) lines.push(`  ${a.name.slice(0, 26).padEnd(26)} ${String(a.ratios.toEndorsersPct).padStart(5)}%  ${b(a.rewardsPool.toEndorsers).padStart(10)}  (${a.endorsers.paid} of ${a.endorsers.wallets} endorsers paid)`);
+const byOwn = [...d.apps].filter((a) => a.ratios.toOwnTeamAsRewardsPct).sort((x, y) => y.ratios.toOwnTeamAsRewardsPct - x.ratios.toOwnTeamAsRewardsPct).slice(0, 10);
+lines.push(`Paid to own team wallets as rewards, total ${b(t.toOwnTeamAsRewards ?? '0')}:`);
+for (const a of byOwn) lines.push(`  ${a.name.slice(0, 26).padEnd(26)} ${String(a.ratios.toOwnTeamAsRewardsPct).padStart(5)}%  ${b(a.rewardsPool.toOwnTeamAsRewards).padStart(10)}`);
 lines.push('Largest team top-ups (withdraw-and-redeposit made gross "taken" + "paid" exceed 100%):');
 for (const a of recyclers) lines.push(`  ${a.name.slice(0, 26).padEnd(26)} put back ${b(a.rewardsPool.depositsByTeam).padStart(10)} · withdrew ${b(a.rewardsPool.withdrawnByTeam).padStart(10)} · paid ${a.ratios.paidToUsersPctOfAllocation}% + taken ${a.ratios.takenByTeamPct}% (gross ${a.ratios.takenByTeamGrossPct}%) + in pool ${a.ratios.stillInPoolPct}%`);
 // Sanity: paid-to-users can't be negative (deposits − withdrawals − balance).
@@ -60,7 +66,7 @@ for (const c of d.checks ?? []) lines.push(`  ${c.ok ? '✓' : c.ok === null ? '
 if (!(d.checks ?? []).length) lines.push('  (none in this summary)');
 
 // Detail for apps people have asked about.
-const WATCH = (process.env.WATCH_APPS ?? 'B3TR Beach,veDelegate,Mugshot,GreenCart').split(',').map((s) => s.trim().toLowerCase());
+const WATCH = (process.env.WATCH_APPS ?? 'B3TR Beach,veDelegate,Mugshot,GreenCart,VeLottery').split(',').map((s) => s.trim().toLowerCase());
 const since = Number(process.env.SINCE_ROUND ?? 54);
 for (const name of WATCH) {
   const a = d.apps.find((x) => x.name.toLowerCase().replace(/\s+/g, '') === name.replace(/\s+/g, ''))
@@ -73,6 +79,7 @@ for (const name of WATCH) {
   lines.push('', `── ${a.name} (${a.id.slice(0, 10)}…) wallets ${a.teamWallets.join(', ')}${a.sharedWalletWith.length ? ' [SHARED]' : ''}`);
   lines.push(`  allocation all-time ${b(a.allocation.total)} (pool ${b(a.allocation.toRewardsPool)}, team split ${b(a.allocation.toTeam)}) · rounds ${a.firstRound}–${a.lastRound}`);
   lines.push(`  since round ${since}: allocated ${b(sumR('total', since))} · withdrawn by team ${b(sumR('withdrawn', since))}`);
+  lines.push(`  paid out ${b(a.rewardsPool.paidToUsers)} = users ${b(a.rewardsPool.paidToRealUsers ?? '0')} (${a.ratios.paidToUsersPctOfAllocation}%) + endorsers ${b(a.rewardsPool.toEndorsers ?? '0')} (${a.ratios.toEndorsersPct ?? 0}%, ${a.endorsers?.paid ?? 0} of ${a.endorsers?.wallets ?? 0} endorsers) + own team ${b(a.rewardsPool.toOwnTeamAsRewards ?? '0')} (${a.ratios.toOwnTeamAsRewardsPct ?? 0}%) · taken net ${a.ratios.takenByTeamPct}% · in pool ${a.ratios.stillInPoolPct}%`);
   lines.push(`  rewards pool: deposits ${b(a.rewardsPool.deposits)} (team top-ups ${b(a.rewardsPool.depositsByTeam)}) · withdrawn ${b(a.rewardsPool.withdrawnByTeam)} · balance ${b(a.rewardsPool.balanceNow)} · paid to users ${b(a.rewardsPool.paidToUsers)}`);
   lines.push(`  team wallet received: ${Object.entries(rx).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing read'}`);
   lines.push(`  team wallet sent: ${Object.entries(tw.sent).filter(([, v]) => v !== '0').map(([k, v]) => `${k} ${b(v)}`).join(' · ') || 'nothing'} · balance ${b(tw.balanceNow)}`);

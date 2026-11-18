@@ -370,3 +370,44 @@ describe('users per app', async () => {
     expect(s.ecosystem).toEqual({ users30: 2, users90: 2 });
   });
 });
+
+describe('rewards to own team and endorsers are not user rewards', () => {
+  it('splits them out of paid-to-users, moves own-team into taken, and keeps the 100% identity', () => {
+    const END = '0x' + '5'.repeat(40);
+    const USER = '0x' + '6'.repeat(40);
+    const s = summarize({
+      apps: [{ id: A, name: 'Lotto', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
+      claims: [{ appId: A, round: 1, total: 1000n * E18, toTeam: 0n, toPool: 1000n * E18, unallocated: 0n, recipient: W1, at: 1 }],
+      deposits: [{ appId: A, amount: 1000n * E18, depositor: XAP, at: 1 }],
+      withdrawals: [],
+      poolBalances: { [A]: 100n * E18 },
+      wallets: {},
+      xAllocationPool: MAINNET.xAllocationPool,
+      endorsersOf: { [A.toLowerCase()]: new Set([END]) },
+      rewardsTo: {
+        [`${A.toLowerCase()}|${W1}`]: { wei: (300n * E18).toString(), usd: 30 }, // team share paid as "rewards"
+        [`${A.toLowerCase()}|${END}`]: { wei: (60n * E18).toString(), usd: 6 }, // endorser rewards
+        [`0xother|${USER}`]: { wei: '1', usd: 0 },
+      },
+    });
+    const a = s.apps[0];
+    expect(a.rewardsPool.paidToUsers).toBe((900n * E18).toString()); // all that left the pool
+    expect(a.rewardsPool.paidToRealUsers).toBe((540n * E18).toString());
+    expect(a.ratios.paidToUsersPctOfAllocation).toBe(54);
+    expect(a.ratios.toEndorsersPct).toBe(6);
+    expect(a.ratios.takenByTeamPct).toBe(30);
+    expect(a.ratios.paidToUsersPctOfAllocation + a.ratios.toEndorsersPct + a.ratios.takenByTeamPct + a.ratios.stillInPoolPct).toBe(100);
+    expect(a.endorsers).toEqual({ wallets: 1, paid: 1 });
+    expect(s.totals.toEndorsers).toBe((60n * E18).toString());
+  });
+
+  it('does not count an app’s own team or endorsers as its users', async () => {
+    const { emptyPayouts, foldPayouts, userStats } = await import('../src/users.mjs');
+    const now = 1_800_000_000;
+    const c = foldPayouts(emptyPayouts(), [
+      { at: now - 10, appId: '0xaa', receiver: W1, amount: E18 },
+      { at: now - 10, appId: '0xaa', receiver: W2, amount: E18 },
+    ], now);
+    expect(userStats(c, now, { '0xaa': new Set([W1.toLowerCase()]) }).apps['0xaa'].users30).toBe(1);
+  });
+});

@@ -22,7 +22,7 @@ export function pct(part, whole) {
  * @param {Record<string,{balance:bigint,outflows:{to:string,value:bigint,kind:string}[]}>} input.wallets lower-case wallet → flows
  * @param {string} input.xAllocationPool
  */
-export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {}, priceAt = () => null }) {
+export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {}, priceAt = () => null, endorsersOf = {}, rewardsTo = {} }) {
   const xap = xAllocationPool.toLowerCase();
   // Dollars at the time: each amount × the B3TR price on the day it moved.
   const usd = (wei, ts) => {
@@ -135,6 +135,28 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       }
     }
     const receivedFromVbd = allocation.toTeam + withdrawnByTeam;
+    // Rewards this app paid (distributeReward) to its OWN team wallets, or to
+    // wallets that have endorsed it. They leave the pool exactly like user
+    // rewards, so they sit inside paidToUsers; split them out (Morb,
+    // 2026-11-18: VeLottery takes its team share this way, and endorser
+    // rewards are "not really payments to users").
+    const appKey = app.id.toLowerCase();
+    const own = new Set(myWallets);
+    let toOwnTeam = ZERO;
+    let toOwnTeamUsd = 0;
+    for (const w of own) {
+      const e = rewardsTo[`${appKey}|${w}`];
+      if (e) (toOwnTeam += BigInt(e.wei)), (toOwnTeamUsd += e.usd);
+    }
+    let toEndorsers = ZERO;
+    let toEndorsersUsd = 0;
+    let endorsersPaid = 0;
+    for (const w of endorsersOf[appKey] ?? []) {
+      if (own.has(w)) continue;
+      const e = rewardsTo[`${appKey}|${w}`];
+      if (e && BigInt(e.wei) > ZERO) (toEndorsers += BigInt(e.wei)), (toEndorsersUsd += e.usd), endorsersPaid++;
+    }
+    const paidToRealUsers = paidToUsers - toOwnTeam - toEndorsers;
     // A shared wallet's outflows belong to the whole group, so the sold
     // percentage has to be measured against the whole group's receipts —
     // otherwise one app carries every app's sales (it read 236% in testing).
@@ -172,9 +194,10 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     const otherUsd = dollars(outs.filter((f) => f.kind === 'other_wallet' || f.kind === 'other_contract').map((f) => [f.value, f.at]));
     const valueUsd = {
       allocation: allocUsd.total,
-      takenGross: shareUsd.total + withdrawnUsd.total,
+      takenGross: shareUsd.total + withdrawnUsd.total + Math.round(toOwnTeamUsd),
       putBack: putBackUsd.total,
-      takenNet: shareUsd.total + withdrawnUsd.total - putBackUsd.total,
+      takenNet: shareUsd.total + withdrawnUsd.total + Math.round(toOwnTeamUsd) - putBackUsd.total,
+      toEndorsers: Math.round(toEndorsersUsd),
       sold: soldUsd.total,
       toOtherWallets: otherUsd.total,
       /** B3TR moved on days with no known price (before pools traded). */
@@ -219,7 +242,12 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         withdrawnByTeam,
         balanceNow,
         paidToUsers,
+        /** paidToUsers minus what went to the app's own team wallets and its endorsers. */
+        paidToRealUsers,
+        toOwnTeamAsRewards: toOwnTeam,
+        toEndorsers,
       }),
+      endorsers: { wallets: (endorsersOf[appKey]?.size ?? 0), paid: endorsersPaid },
       teamWallet: {
         receivedFromVeBetterDAO: receivedFromVbd.toString(),
         // Equal to the above unless the wallet is shared; then it covers every app sharing it.
@@ -251,7 +279,11 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
           .map((r) => ({ ...r, amount: r.amount.toString() })),
       },
       ratios: {
-        paidToUsersPctOfAllocation: pct(paidToUsers, allocation.total),
+        // Users only: excludes rewards to its own team wallets and endorsers.
+        paidToUsersPctOfAllocation: pct(paidToRealUsers, allocation.total),
+        paidOutAllPct: pct(paidToUsers, allocation.total),
+        toEndorsersPct: pct(toEndorsers, allocation.total),
+        toOwnTeamAsRewardsPct: pct(toOwnTeam, allocation.total),
         // Sold as a share of ALL B3TR the wallet received (falls back to the
         // VeBetterDAO receipts when inflows weren't read).
         soldPctOfTeamReceipts: pct(sent.sold, receivedExternal > ZERO ? receivedExternal : groupReceived),
@@ -266,8 +298,10 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         // With the net figure, every app adds up exactly:
         //   paid + taken (net) + still in pool = allocation   (100%)
         // Net can be negative: the team added more than it took.
-        takenByTeamPct: pct(receivedFromVbd - (depositsTotal - depositsFromAllocation), allocation.total),
-        takenByTeamGrossPct: pct(receivedFromVbd, allocation.total),
+        // Net taken now includes rewards the app paid to its own team wallets.
+        //   users + endorsers + taken (net) + still in pool = allocation (100%)
+        takenByTeamPct: pct(receivedFromVbd + toOwnTeam - (depositsTotal - depositsFromAllocation), allocation.total),
+        takenByTeamGrossPct: pct(receivedFromVbd + toOwnTeam, allocation.total),
         putBackByTeamPct: pct(depositsTotal - depositsFromAllocation, allocation.total),
         stillInPoolPct: pct(balanceNow, allocation.total),
       },
@@ -289,7 +323,10 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     toTeams: sum(out.map((a) => BigInt(a.allocation.toTeam))),
     withdrawnByTeams: sum(out.map((a) => BigInt(a.rewardsPool.withdrawnByTeam))),
     depositsByTeams: sum(out.map((a) => BigInt(a.rewardsPool.depositsByTeam))),
-    paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
+    paidToUsers: sum(out.map((a) => BigInt(a.rewardsPool.paidToRealUsers))),
+    paidOutAll: sum(out.map((a) => BigInt(a.rewardsPool.paidToUsers))),
+    toEndorsers: sum(out.map((a) => BigInt(a.rewardsPool.toEndorsers))),
+    toOwnTeamAsRewards: sum(out.map((a) => BigInt(a.rewardsPool.toOwnTeamAsRewards))),
     // Per WALLET, not per app: a wallet shared by two apps is counted once.
     soldUsd: BigInt(
       dollars(Object.values(wallets).flatMap((w) => w.outflows.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at, f.usd]))).total,
@@ -303,6 +340,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     ),
     allocatedUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.allocation, 0)),
     takenNetUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.takenNet, 0)),
+    toEndorsersUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.toEndorsers, 0)),
     withdrawnUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.takenGross, 0)),
     putBackUsd: BigInt(out.reduce((a, x) => a + x.valueUsd.putBack, 0)),
     sold: sum(

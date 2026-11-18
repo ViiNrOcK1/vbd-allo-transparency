@@ -35,8 +35,13 @@ export function foldPayouts(c, payouts, nowTs) {
   return c;
 }
 
-/** Per app (lower-case id): users and payouts in the last 30 / 90 days, plus ecosystem totals. */
-export function userStats(c, nowTs) {
+/**
+ * Per app (lower-case id): users and payouts in the last 30 / 90 days, plus
+ * ecosystem totals. `excludeOf[appId]` = wallets that are not users of that
+ * app: its own team wallets and wallets that endorsed it (Morb, 2026-11-18:
+ * endorser and team rewards are paid through the same call as user rewards).
+ */
+export function userStats(c, nowTs, excludeOf = {}) {
   const per = new Map();
   const eco30 = new Set();
   const eco90 = new Set();
@@ -44,6 +49,7 @@ export function userStats(c, nowTs) {
     const age = nowTs - at;
     if (age > WINDOW_DAYS * DAY || age < 0) continue;
     const id = c.apps[a];
+    if (excludeOf[id]?.has(c.receivers[r])) continue;
     let s = per.get(id);
     if (!s) per.set(id, (s = { u30: new Set(), u90: new Set(), payouts30: 0, payouts90: 0, b3tr90: 0 }));
     s.u90.add(r);

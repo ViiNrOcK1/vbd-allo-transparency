@@ -78,6 +78,10 @@ export const TOPIC = {
   deposit: toEventSelector('NewDeposit(uint256,bytes32,address)'),
   withdrawal: toEventSelector('TeamWithdrawal(uint256,bytes32,address,address,string)'),
   rewardDistributed: toEventSelector('RewardDistributed(uint256,bytes32,address,string,address)'),
+  // X2EarnApps endorsements. V2–V7: (appId, nodeId, endorsed) — the endorser
+  // is the transaction's origin. V8+: the endorser address is in the event.
+  appEndorsedOld: toEventSelector('AppEndorsed(bytes32,uint256,bool)'),
+  appEndorsedNew: toEventSelector('AppEndorsed(bytes32,uint256,address,uint256)'),
   transfer: toEventSelector('Transfer(address,address,uint256)'),
   swapV2: toEventSelector('Swap(address,uint256,uint256,uint256,uint256,address)'),
   mintV2: toEventSelector('Mint(address,uint256,uint256)'),

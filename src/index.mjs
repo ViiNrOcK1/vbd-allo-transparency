@@ -208,6 +208,7 @@ async function main() {
 
   // ── Users per app: distinct wallets paid in the last 30 / 90 days ──
   let users = null;
+  let payoutCache = null;
   try {
     const cached = await loadCache('payouts');
     const pc = Array.isArray(cached.rows) ? cached : emptyPayouts();
@@ -224,8 +225,8 @@ async function main() {
     );
     pc.lastBlock = best.number;
     await saveCache('payouts', pc);
-    users = userStats(pc, best.timestamp);
-    log(`payouts: ${pl.length} new, ${pc.rows.length} kept; ecosystem users 30d ${users.ecosystem.users30}, 90d ${users.ecosystem.users90}`);
+    payoutCache = pc;
+    log(`payouts: ${pl.length} new, ${pc.rows.length} kept`);
   } catch (e) {
     log(`users per app FAILED: ${e?.message ?? e}`);
   }
@@ -426,8 +427,74 @@ async function main() {
   }
   log(`${grantLogs.length} grant / DAO transfers to ${Object.keys(grantsTo).length} addresses`);
 
+  // ── Endorsers, and rewards an app paid to its own team or its endorsers ──
+  // Morb (2026-11-18): endorser rewards and some teams' share are paid with
+  // distributeReward, the same call as user rewards, so "paid to users" over-
+  // counted. Every wallet that has ever endorsed an app (AppEndorsed, all
+  // versions) and every team wallet is looked up as a RewardDistributed
+  // receiver; payouts to them FROM THAT SAME APP are split out.
+  const endorsersOf = {}; // appId → Set(wallet)
+  const rewardsTo = {}; // `${appId}|${wallet}` → { wei: string, usd: number }
+  try {
+    const el = await thor.logs(
+      [
+        { address: MAINNET.x2EarnApps, topic0: TOPIC.appEndorsedOld },
+        { address: MAINNET.x2EarnApps, topic0: TOPIC.appEndorsedNew },
+      ],
+      0,
+      best.number,
+    );
+    for (const l of el) {
+      const appId = String(l.topics[1]).toLowerCase();
+      let who = null;
+      if (l.topics[0] === TOPIC.appEndorsedNew) who = '0x' + String(l.data).slice(2 + 24, 2 + 64);
+      else if (BigInt('0x' + String(l.data).slice(2 + 64, 2 + 128)) === 1n) who = l.meta.txOrigin; // endorsed = true
+      if (!who) continue;
+      (endorsersOf[appId] ??= new Set()).add(String(who).toLowerCase());
+    }
+    const nEndorsers = new Set(Object.values(endorsersOf).flatMap((s) => [...s])).size;
+    log(`endorsements: ${el.length} events, ${nEndorsers} endorser wallets across ${Object.keys(endorsersOf).length} apps`);
+
+    const rc = await loadCache('rewardsto'); // wallet → { lastBlock, by: { appId: { wei, usd } } }
+    const targets = new Set([...[...walletSet].map((w) => w.toLowerCase()), ...Object.values(endorsersOf).flatMap((s) => [...s])]);
+    await mapLimit([...targets], 8, async (w) => {
+      const c = (rc[w] ??= { lastBlock: -1, by: {} });
+      if (c.lastBlock >= best.number) return;
+      const ls = await thor.logs(
+        [{ address: MAINNET.x2EarnRewardsPool, topic0: TOPIC.rewardDistributed, topic2: pad(w, { size: 32 }) }],
+        c.lastBlock + 1,
+        best.number,
+      );
+      for (const l of ls) {
+        const appId = String(l.topics[1]).toLowerCase();
+        const amount = BigInt('0x' + String(l.data).slice(2, 66));
+        const e = (c.by[appId] ??= { wei: '0', usd: 0 });
+        e.wei = (BigInt(e.wei) + amount).toString();
+        const p = priceAt(l.meta.blockTimestamp);
+        if (p != null) e.usd += (Number(amount / 10n ** 12n) / 1e6) * p;
+      }
+      c.lastBlock = best.number;
+    });
+    await saveCache('rewardsto', rc);
+    for (const [w, c] of Object.entries(rc)) for (const [appId, e] of Object.entries(c.by)) rewardsTo[`${appId}|${w}`] = e;
+    log(`rewards to team/endorser wallets: ${Object.keys(rewardsTo).length} (app, wallet) pairs`);
+  } catch (e) {
+    log(`endorser / team rewards FAILED: ${e?.message ?? e}`);
+  }
+
+  // Users per app, now that we know whose wallets are not users.
+  if (payoutCache) {
+    const excludeOf = {};
+    for (const [id, ws] of appWallets) excludeOf[id.toLowerCase()] = new Set([...ws].map((w) => w.toLowerCase()));
+    for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
+    users = userStats(payoutCache, best.timestamp, excludeOf);
+    log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30}, 90d ${users.ecosystem.users90}`);
+  }
+
   const summary = summarize({
     apps,
+    endorsersOf,
+    rewardsTo,
     grantsTo,
     claims,
     deposits,

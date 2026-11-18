@@ -64,7 +64,12 @@ function takenCell(a) {
   const r = a.ratios;
   if (r.takenByTeamPct === null || r.takenByTeamPct === undefined) return '—';
   const back = r.putBackByTeamPct ? ` − ${r.putBackByTeamPct}% put back` : '';
-  const how = r.teamSharePct ? `${r.takenByTeamGrossPct}% incl. official share${back}` : r.takenByTeamGrossPct ? `withdrew ${r.takenByTeamGrossPct}%${back}` : '';
+  const viaRewards = r.toOwnTeamAsRewardsPct ? `, ${r.toOwnTeamAsRewardsPct}% paid to its own wallets as “rewards”` : '';
+  const how = r.teamSharePct
+    ? `${r.takenByTeamGrossPct}% incl. official share${viaRewards}${back}`
+    : r.takenByTeamGrossPct
+      ? `took ${r.takenByTeamGrossPct}%${viaRewards}${back}`
+      : '';
   if (r.takenByTeamPct <= 0) {
     const added = b3(a.rewardsPool.depositsByTeam) - b3(a.teamWallet.receivedFromVeBetterDAO);
     return `None<span class="sub">${added > 0 ? `added ${fmt(added)} of its own` : how || 'nothing withdrawn'}</span>`;
@@ -79,7 +84,8 @@ function renderTotals(d) {
   const cards = [
     [`Round #${t.currentRound} to apps`, fmt(b3(t.currentRoundToApps)) + ' B3TR', `${t.currentRoundApps} apps · ${fmt(b3(t.currentRoundToTeams))} of it to team wallets`],
     ['Allocated to apps', fmt(allocated) + ' B3TR', `${d.apps.filter((a) => a.rounds > 0).length} apps, all rounds · ≈${usdTxt(Number(t.allocatedUsd ?? 0))} when received`],
-    ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations`],
+    ['Paid to users', fmt(b3(t.paidToUsers)) + ' B3TR', `${allocated ? ((b3(t.paidToUsers) / allocated) * 100).toFixed(1) : '—'}% of allocations · not counting rewards apps paid to their own team or endorsers`],
+    ['Paid to endorsers', fmt(b3(t.toEndorsers ?? '0')) + ' B3TR', `${allocated ? ((b3(t.toEndorsers ?? '0') / allocated) * 100).toFixed(1) : '—'}% of allocations · ≈${usdTxt(Number(t.toEndorsersUsd ?? 0))} at the time · rewards apps paid to wallets that endorse them`],
     (() => {
       const net = b3(t.toTeams) + b3(t.withdrawnByTeams) - b3(t.depositsByTeams ?? '0');
       return ['Taken by teams (net)', fmt(net) + ' B3TR', `${allocated ? ((net / allocated) * 100).toFixed(1) : '—'}% of allocations · ≈${usdTxt(Number(t.takenNetUsd ?? 0))} at the time · withdrew ${fmt(b3(t.withdrawnByTeams))}, put back ${fmt(b3(t.depositsByTeams ?? '0'))}`];
@@ -144,7 +150,9 @@ function detailHtml(a) {
       <dl class="kv">
         <dt>Deposited</dt><dd>${fmt(b3(pool.deposits))}</dd>
         <dt>…of which topped up by team</dt><dd>${fmt(b3(pool.depositsByTeam))}</dd>
-        <dt>Paid to users</dt><dd>${fmt(b3(pool.paidToUsers))}</dd>
+        <dt>Paid to users</dt><dd>${fmt(b3(pool.paidToRealUsers ?? pool.paidToUsers))}</dd>
+        ${b3(pool.toEndorsers ?? '0') > 0 ? `<dt>Paid to its endorsers (${a.endorsers?.paid ?? 0} of ${a.endorsers?.wallets ?? 0})</dt><dd>${fmt(b3(pool.toEndorsers))}</dd>` : ''}
+        ${b3(pool.toOwnTeamAsRewards ?? '0') > 0 ? `<dt>Paid to its own team wallets as “rewards”</dt><dd>${fmt(b3(pool.toOwnTeamAsRewards))}</dd>` : ''}
         <dt>Withdrawn by team</dt><dd>${fmt(b3(pool.withdrawnByTeam))}</dd>
         <dt>Still in pool</dt><dd>${fmt(b3(pool.balanceNow))}</dd>
       </dl>
@@ -194,7 +202,7 @@ function render() {
         <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.lastRound ? ` · last: ${fmt(b3((a.perRound.find((r) => r.round === a.lastRound) ?? { total: '0' }).total))} in #${a.lastRound}` : ''}</span></td>
         <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>
         <td data-label="All-time allocated">${fmt(allocated)}</td>
-        <td data-label="Paid to users" title="Paid to users + taken by team + still in the pool = 100% of the allocation">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span>${a.ratios.stillInPoolPct ? `<span class="sub">${a.ratios.stillInPoolPct}% still in pool</span>` : ''}</td>
+        <td data-label="Paid to users" title="Paid to users + paid to its endorsers + taken by team + still in the pool = 100% of the allocation">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span>${a.ratios.toEndorsersPct ? `<span class="sub">+ ${a.ratios.toEndorsersPct}% to its endorsers</span>` : ''}${a.ratios.stillInPoolPct ? `<span class="sub">${a.ratios.stillInPoolPct}% still in pool</span>` : ''}</td>
         <td data-label="Taken by team">${takenCell(a)}</td>
         <td data-label="Sold by team" class="${soldPct >= 50 ? 'sold-hi' : ''}">${fmt(sold)}<span class="sub">${soldPct === null ? '—' : `${soldPct}% of all received${a.sharedWalletWith.length ? ' (shared)' : ''}`}${a.valueUsd?.sold ? ` · ${usdTxt(a.valueUsd.sold)}` : ''}${a.valueUsd?.toOtherWallets ? `<br>+ ${usdTxt(a.valueUsd.toOtherWallets)} to other wallets` : ''}</span></td>
         <td data-label="Team wallet now">${fmt(held)}</td>
