@@ -167,6 +167,17 @@ function detailHtml(a) {
       </dl>
       <p class="fine">Wallet${a.teamWallets.length > 1 ? 's' : ''}: ${wallets}${a.sharedWalletWith.length ? '<br>Shared with other apps: flows can’t be split between them.' : ''}</p>
     </div>
+    ${(() => {
+      const u = DATA.users?.apps?.[a.id.toLowerCase()];
+      if (!u) return '';
+      const top = u.topReceiver90;
+      return `<div class="dbox"><h3>Users, last 30 / 90 days</h3><dl class="kv">
+        <dt>Wallets paid, 30 days</dt><dd>${fmt(u.users30)}</dd>
+        <dt>Wallets paid, 90 days</dt><dd>${fmt(u.users90)}</dd>
+        <dt>B3TR paid to them, 90 days</dt><dd>${fmt(u.b3tr90)}</dd>
+        ${top ? `<dt>Biggest single receiver</dt><dd>${top.sharePct}%</dd><dt>Top 5 receivers</dt><dd>${u.top5SharePct90}%</dd>` : ''}
+      </dl>${top ? `<p class="fine">Biggest receiver: <a class="addr" href="${EXPLORER}${esc(top.address)}" target="_blank" rel="noopener">${esc(short(top.address))}</a> (${fmt(top.b3tr)} B3TR). When one wallet takes most of an app’s rewards, the app may be paying in bulk to a wallet that hands them out by plain transfers, or paying a team wallet it never registered — or it has one very active user. Open the address to check.</p>` : ''}<p class="fine">Not counted as users: the app’s own team wallets and wallets that have endorsed it.</p></div>`;
+    })()}
     ${a.valueUsd ? `<div class="dbox"><h3>Value at the time (USD)</h3><dl class="kv">
         <dt>Allocation, when received</dt><dd>${usdTxt(a.valueUsd.allocation)}</dd>
         <dt>Taken by team, net</dt><dd>${usdTxt(a.valueUsd.takenNet)}</dd>
@@ -197,9 +208,12 @@ function render() {
   $('#apps tbody').innerHTML = rows
     .map(({ a, current, allocated, paidPct, teamPct, sold, held }) => {
       const soldPct = a.ratios.soldPctOfTeamReceipts;
-      const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}`;
+      const u = DATA.users?.apps?.[a.id.toLowerCase()];
+      const conc = u?.topReceiver90 && u.topReceiver90.sharePct >= 50 && u.b3tr90 >= 1000;
+      const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}${conc ? `<span class="tag" title="One wallet received ${u.topReceiver90.sharePct}% of this app’s rewards in the last 90 days">1 wallet: ${u.topReceiver90.sharePct}% of rewards</span>` : ''}`;
+      const usersLine = DATA.users ? ` · ${fmt(u?.users30 ?? 0)} users in 30 days` : '';
       const main = `<tr class="row" data-id="${esc(a.id)}" tabindex="0" aria-expanded="${open === a.id}">
-        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.lastRound ? ` · last: ${fmt(b3((a.perRound.find((r) => r.round === a.lastRound) ?? { total: '0' }).total))} in #${a.lastRound}` : ''}</span></td>
+        <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.lastRound ? ` · last: ${fmt(b3((a.perRound.find((r) => r.round === a.lastRound) ?? { total: '0' }).total))} in #${a.lastRound}` : ''}${usersLine}</span></td>
         <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>
         <td data-label="All-time allocated">${fmt(allocated)}</td>
         <td data-label="Paid to users" title="Paid to users + paid to its endorsers + taken by team + still in the pool = 100% of the allocation">${pctTxt(paidPct < 0 ? null : paidPct)}<span class="pctbar"><i style="width:${Math.max(0, Math.min(100, paidPct))}%"></i></span>${a.ratios.toEndorsersPct ? `<span class="sub">+ ${a.ratios.toEndorsersPct}% to its endorsers</span>` : ''}${a.ratios.stillInPoolPct ? `<span class="sub">${a.ratios.stillInPoolPct}% still in pool</span>` : ''}</td>

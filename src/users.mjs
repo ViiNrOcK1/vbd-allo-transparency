@@ -51,10 +51,11 @@ export function userStats(c, nowTs, excludeOf = {}) {
     const id = c.apps[a];
     if (excludeOf[id]?.has(c.receivers[r])) continue;
     let s = per.get(id);
-    if (!s) per.set(id, (s = { u30: new Set(), u90: new Set(), payouts30: 0, payouts90: 0, b3tr90: 0 }));
+    if (!s) per.set(id, (s = { u30: new Set(), u90: new Set(), payouts30: 0, payouts90: 0, b3tr90: 0, byReceiver: new Map() }));
     s.u90.add(r);
     s.payouts90++;
     s.b3tr90 += amt;
+    s.byReceiver.set(r, (s.byReceiver.get(r) ?? 0) + amt);
     eco90.add(r);
     if (age <= 30 * DAY) {
       s.u30.add(r);
@@ -64,7 +65,22 @@ export function userStats(c, nowTs, excludeOf = {}) {
   }
   const apps = {};
   for (const [id, s] of per) {
-    apps[id] = { users30: s.u30.size, users90: s.u90.size, payouts30: s.payouts30, payouts90: s.payouts90, b3tr90: Math.round(s.b3tr90) };
+    // Concentration (Morb, 2026-11-18): an app that pays rewards in bulk to
+    // one wallet and hands them out by plain transfers (Juicy Finance), or
+    // pays its team through a wallet it never registered, shows up as one
+    // receiver taking most of the rewards. Facts only: the share and the
+    // address, for readers to check.
+    const ranked = [...s.byReceiver.entries()].sort((a, b) => b[1] - a[1]);
+    const share = (n) => (s.b3tr90 > 0 ? Math.round((ranked.slice(0, n).reduce((x, [, v]) => x + v, 0) / s.b3tr90) * 1000) / 10 : 0);
+    apps[id] = {
+      users30: s.u30.size,
+      users90: s.u90.size,
+      payouts30: s.payouts30,
+      payouts90: s.payouts90,
+      b3tr90: Math.round(s.b3tr90),
+      topReceiver90: ranked[0] ? { address: c.receivers[ranked[0][0]], b3tr: Math.round(ranked[0][1]), sharePct: share(1) } : null,
+      top5SharePct90: share(5),
+    };
   }
   return { apps, ecosystem: { users30: eco30.size, users90: eco90.size } };
 }

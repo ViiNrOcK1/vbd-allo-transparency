@@ -31,6 +31,9 @@ if (d.users) {
   for (const r of rows.filter((r) => r.users90 > 0 || r.alloc > 0n)) {
     lines.push(`  ${r.name.slice(0, 30).padEnd(30)} ${String(r.users30).padStart(7)}  ${String(r.users90).padStart(7)}  ${String(r.payouts30).padStart(9)}  ${String(r.b3tr90).padStart(13)}  ${b(r.alloc).padStart(10)}`);
   }
+  const conc = rows.filter((r) => r.topReceiver90 && r.topReceiver90.sharePct >= 30 && r.b3tr90 >= 1000).sort((x, y) => y.topReceiver90.sharePct - x.topReceiver90.sharePct);
+  lines.push('', 'One wallet took ≥ 30% of an app\'s rewards in the last 90 days (bulk claims, unregistered team wallets, or one big user):');
+  for (const r of conc) lines.push(`  ${r.name.slice(0, 30).padEnd(30)} ${String(r.topReceiver90.sharePct).padStart(5)}% of ${String(r.b3tr90).padStart(9)} B3TR → ${r.topReceiver90.address} · top 5 ${r.top5SharePct90}% · users30 ${r.users30}`);
 } else lines.push('', 'Users per app: not available this run');
 
 // Identity: for every app, paid + taken (net) + still in pool = what

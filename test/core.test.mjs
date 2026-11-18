@@ -365,7 +365,10 @@ describe('users per app', async () => {
     ], now);
     expect(c.rows.length).toBe(4);
     const s = userStats(c, now);
-    expect(s.apps['0xaa']).toEqual({ users30: 1, users90: 2, payouts30: 2, payouts90: 3, b3tr90: 16 });
+    expect(s.apps['0xaa']).toMatchObject({ users30: 1, users90: 2, payouts30: 2, payouts90: 3, b3tr90: 16 });
+    // W1 got 15 of the 16 B3TR paid: one wallet, 93.8% of the rewards.
+    expect(s.apps['0xaa'].topReceiver90).toEqual({ address: W1.toLowerCase(), b3tr: 15, sharePct: 93.8 });
+    expect(s.apps['0xaa'].top5SharePct90).toBe(100);
     expect(s.apps['0xbb'].users30).toBe(1);
     expect(s.ecosystem).toEqual({ users30: 2, users90: 2 });
   });
