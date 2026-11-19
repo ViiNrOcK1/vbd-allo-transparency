@@ -237,7 +237,7 @@ function render() {
       const u = DATA.users?.apps?.[a.id.toLowerCase()];
       const conc = u?.topReceiver90 && u.topReceiver90.sharePct >= 50 && u.b3tr90 >= 1000;
       const tags = `${a.sharedWalletWith.length ? '<span class="tag">shared wallet</span>' : ''}${a.active ? '' : '<span class="tag off">inactive</span>'}${conc ? `<span class="tag" title="One wallet received ${u.topReceiver90.sharePct}% of this app’s rewards in the last 90 days">1 wallet: ${u.topReceiver90.sharePct}% of rewards</span>` : ''}`;
-      const usersLine = DATA.users ? ` · ${fmt(u?.users30 ?? 0)} users in 30 days` : '';
+      const usersLine = DATA.users ? ` · ${fmt(u?.users30 ?? 0)} wallets paid in 30 days` : '';
       const main = `<tr class="row" data-id="${esc(a.id)}" tabindex="0" aria-expanded="${open === a.id}">
         <td class="l"><strong>${esc(a.name)}</strong>${tags}<span class="sub">${a.rounds} rounds${a.lastRound ? ` · last: ${fmt(b3((a.perRound.find((r) => r.round === a.lastRound) ?? { total: '0' }).total))} in #${a.lastRound}` : ''}${usersLine}</span></td>
         <td data-label="Round #${DATA.totals.currentRound}">${current < 0 ? '—' : fmt(current)}</td>

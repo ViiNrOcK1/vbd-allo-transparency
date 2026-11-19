@@ -150,13 +150,19 @@ function splitChart(el, apps, state = { sort: 'allocated', all: false }) {
 
 // ── 2. every round ──
 function roundsChart(el, apps) {
-  const pts = perRoundTotals(apps).filter((p) => p.allocated > 0 || p.withdrawn > 0);
+  // Stop at the last round whose allocation has been claimed: the round in
+  // progress has no allocation yet (it's claimed after the round ends), so
+  // drawing it made the line crash to 0 (Vinny, 2026-11-19).
+  const all = perRoundTotals(apps);
+  const lastClaimed = Math.max(...all.filter((p) => p.allocated > 0).map((p) => p.round), -Infinity);
+  const pts = all.filter((p) => p.round <= lastClaimed && (p.allocated > 0 || p.withdrawn > 0));
   if (pts.length < 2) {
     el.hidden = true;
     return;
   }
   // Drawn at the card's real pixel width so text stays 11px on phones too.
-  const W = Math.max(280, Math.round(el.clientWidth - 32));
+  // Card width, falling back to the page width if the card isn't laid out yet.
+  const W = Math.max(280, Math.round((el.getBoundingClientRect().width || document.documentElement.clientWidth - 32) - 32));
   const H = W < 520 ? 200 : 260;
   const m = { l: 44, r: 12, t: 12, b: 26 };
   const iw = W - m.l - m.r;
@@ -187,7 +193,7 @@ function roundsChart(el, apps) {
       <circle class="dot s1" r="4" visibility="hidden"/><circle class="dot s2" r="4" visibility="hidden"/>
       <rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/>
     </svg>
-    <p class="fine">B3TR per round, all apps together. Since round #${r0}: ${fmt(totalAlloc)} allocated, ${fmt(totalWd)} withdrawn by teams (${pct((totalWd / (totalAlloc || 1)) * 100)}). Withdrawals are counted in the round they happened. The latest round can still be filling in while apps claim.</p>`;
+    <p class="fine">B3TR per round, all apps together. Since round #${r0}: ${fmt(totalAlloc)} allocated, ${fmt(totalWd)} withdrawn by teams (${pct((totalWd / (totalAlloc || 1)) * 100)}). Withdrawals are counted in the round they happened. Ends at round #${r1}, the last round whose allocation has been claimed; the round in progress is added once it ends.</p>`;
   const svg = el.querySelector('svg');
   const cross = svg.querySelector('.cross');
   const [d1, d2] = svg.querySelectorAll('.dot');
@@ -290,8 +296,8 @@ function usersChart(el, data) {
   }
   const max = rows[0].users;
   const eco = data.users.ecosystem?.users30;
-  el.innerHTML = `<div class="viz-head"><h3>Users in the last 30 days</h3></div>
-    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Users</span><span class="sh">Round share</span></div>
+  el.innerHTML = `<div class="viz-head"><h3>Wallets paid in the last 30 days</h3></div>
+    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Wallets</span><span class="sh">Round share</span></div>
     <div class="users-rows">${rows
       .map(
         (r) => `<div class="users-row" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${r.users.toLocaleString()} wallets paid a reward in the last 30 days${r.share === null ? '' : `<br>${r.share.toFixed(1)}% of round #${data.totals.currentRound}’s allocation`}`)}">
@@ -302,7 +308,7 @@ function usersChart(el, data) {
         </div>`,
       )
       .join('')}</div>
-    <p class="fine">Wallets that got at least one reward from the app in the last 30 days (its own team wallets and endorsers left out). The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco ? ` Across all apps: ${eco.toLocaleString()} different wallets.` : ''}</p>`;
+    <p class="fine">Different wallets that got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out). Wallets, not people: one person with five wallets counts five times, so this is a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco ? ` Across all apps: ${eco.toLocaleString()} different wallets.` : ''}</p>`;
 }
 
 /**
@@ -352,19 +358,23 @@ export function renderCharts(data) {
     <div class="viz-card" id="viz-rounds"></div>
     <div class="viz-card" id="viz-users"></div>`;
   const pick = (mode) => (mode === 'all' ? data.apps : data.apps.filter((a) => a.active));
+  // Visible BEFORE drawing, so the line chart measures its real width (it was
+  // measuring a hidden card and drawing at 280px, then scaling up huge).
+  root.hidden = false;
   const splitState = { sort: 'allocated', all: false };
   withFilter(root.querySelector('#viz-split'), (mode) => splitChart(root.querySelector('#viz-split'), pick(mode), splitState));
   withFilter(root.querySelector('#viz-sellers'), (mode) => sellersChart(root.querySelector('#viz-sellers'), pick(mode)));
   const rounds = root.querySelector('#viz-rounds');
   const repaintRounds = withFilter(rounds, (mode) => roundsChart(rounds, pick(mode)));
   let lastW = rounds.clientWidth;
-  window.addEventListener('resize', () => {
+  const onResize = () => {
     if (Math.abs(rounds.clientWidth - lastW) < 40) return;
     lastW = rounds.clientWidth;
     repaintRounds();
-  });
+  };
+  if (typeof ResizeObserver === 'function') new ResizeObserver(onResize).observe(rounds);
+  else window.addEventListener('resize', onResize);
   withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }));
-  root.hidden = false;
   // Hover and keyboard focus show the same tooltip for bar rows.
   const at = (e) => e.target.closest?.('[data-tip]');
   root.addEventListener('pointermove', (e) => {
