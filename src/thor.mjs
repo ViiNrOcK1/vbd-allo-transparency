@@ -98,6 +98,32 @@ export function createThor({ node = DEFAULT_NODE, fetchImpl = fetch, retries = 4
       return !r || r.reverted ? null : r.data;
     },
 
+    /**
+     * The first VET transfer INTO `address` up to block `to` (its first VET
+     * funding), or null. { from, at, block }.
+     */
+    async firstVetIn(address, to) {
+      const r = await post('/logs/transfer', {
+        range: { unit: 'block', from: 0, to },
+        options: { offset: 0, limit: 1 },
+        criteriaSet: [{ recipient: address }],
+        order: 'asc',
+      });
+      const l = r?.[0];
+      return l ? { from: String(l.sender).toLowerCase(), at: l.meta.blockTimestamp, block: l.meta.blockNumber } : null;
+    },
+
+    /** The first log matching one criteria object up to block `to`, or null. */
+    async firstLog(criteria, to) {
+      const r = await post('/logs/event', {
+        range: { unit: 'block', from: 0, to },
+        options: { offset: 0, limit: 1 },
+        criteriaSet: [criteria],
+        order: 'asc',
+      });
+      return r?.[0] ?? null;
+    },
+
     async hasCode(address) {
       const r = await request(`/accounts/${address}/code`);
       return typeof r.code === 'string' && r.code !== '0x' && r.code.length > 2;

@@ -14,6 +14,7 @@ import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
+import { earliestFunding, funderLinks } from './funders.mjs';
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -486,6 +487,7 @@ async function main() {
 
   // Wallets one person linked together through VeBetter Passport.
   let personOf = null;
+  let passportPairs = [];
   try {
     const cached = await loadCache('passportlinks');
     const pl = Array.isArray(cached.events) ? cached : { lastBlock: -1, events: [] };
@@ -501,6 +503,7 @@ async function main() {
     pl.lastBlock = best.number;
     await saveCache('passportlinks', pl);
     const pairs = currentLinks(pl.events);
+    passportPairs = pairs;
     personOf = personOfFactory(pairs);
     log(`passport links: ${fresh.length} new events, ${pairs.length} links in force`);
   } catch (e) {
@@ -537,24 +540,97 @@ async function main() {
         await saveCache('sweeps', sc);
         log(`sweeps: blocks ${from}–${to}, ${tl.length} B3TR transfers read, ${sc.rows.length} kept`);
       }
+      // VOT3 too (Vinny, 2026-11-19): some farmers convert to VOT3 first and
+      // move the VOT3. 1 VOT3 = 1 B3TR, so it adds to the same totals. Mints
+      // and burns (to/from the zero address) are conversions, not sweeps.
+      {
+        const vFrom = Math.max((sc.lastBlockVot3 ?? -1) + 1, windowStart);
+        const vTo = Math.min(best.number, vFrom + 120 * 8640);
+        if (vFrom <= vTo) {
+          const vl = await thor.logs([{ address: MAINNET.vot3, topic0: TOPIC.transfer }], vFrom, vTo);
+          const ZERO_ADDR = '0x' + '0'.repeat(40);
+          foldSweeps(
+            sc,
+            vl
+              .map((l) => ({ at: l.meta.blockTimestamp, from: '0x' + l.topics[1].slice(26), to: '0x' + l.topics[2].slice(26), amount: BigInt(l.data) }))
+              .filter((t) => t.from !== ZERO_ADDR && t.to !== ZERO_ADDR),
+            (a) => receivers.has(a),
+            best.timestamp,
+          );
+          sc.lastBlockVot3 = vTo;
+          await saveCache('sweeps', sc);
+          log(`sweeps: ${vl.length} VOT3 transfers read`);
+        }
+      }
       const teamWallets = new Set([...appWallets.values()].flatMap((ws) => [...ws].map((x) => x.toLowerCase())));
       const vbd = new Set(Object.keys(VBD_CONTRACTS).map((x) => x.toLowerCase()));
       const cands = candidateDestinations(sc, payoutCache, best.timestamp);
       await mapLimit(cands, 10, (d) => isContract(d));
       await saveCache('contracts', contracts);
-      const excluded = (a) => teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]);
+      const ZERO_A = '0x' + '0'.repeat(40);
+      const excluded = (a) => a === ZERO_A || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
       const sw = sweepLinks(sc, payoutCache, best.timestamp, excluded);
+
+      // Same funder (funders.mjs): each reward wallet's first VET / VTHO.
+      // Never changes, so it's cached forever; up to 6,000 new wallets per
+      // run, so the first few runs fill it in.
+      let fund = null;
+      try {
+        const fc = await loadCache('funders'); // wallet → funder | null
+        const VTHO = '0x0000000000000000000000000000456E65726779';
+        const recent = new Set();
+        const since = best.timestamp - 90 * 86_400;
+        for (const [at, , r] of payoutCache.rows) if (at >= since) recent.add(payoutCache.receivers[r]);
+        const todo = [...recent].filter((w) => !(w in fc)).slice(0, 6000);
+        let done = 0;
+        await mapLimit(todo, 10, async (w) => {
+          try {
+            const [vet, vthoLog] = await Promise.all([
+              thor.firstVetIn(w, best.number),
+              thor.firstLog({ address: VTHO, topic0: TOPIC.transfer, topic2: '0x' + '0'.repeat(24) + w.slice(2) }, best.number),
+            ]);
+            const vtho = vthoLog ? { from: ('0x' + vthoLog.topics[1].slice(26)).toLowerCase(), block: vthoLog.meta.blockNumber } : null;
+            fc[w] = earliestFunding(vet, vtho)?.from ?? null;
+            done++;
+          } catch {
+            /* try again next run */
+          }
+        });
+        await saveCache('funders', fc);
+        const funderCands = [...new Set([...recent].map((w) => fc[w]).filter(Boolean))];
+        const counts = new Map();
+        for (const w of recent) if (fc[w]) counts.set(fc[w], (counts.get(fc[w]) ?? 0) + 1);
+        await mapLimit(funderCands.filter((f) => counts.get(f) >= 2), 10, (f) => isContract(f));
+        await saveCache('contracts', contracts);
+        const fl = funderLinks(fc, [...recent], excluded);
+        const known = [...recent].filter((w) => w in fc).length;
+        fund = {
+          checkedWallets: known,
+          ofWallets: recent.size,
+          caughtUp: known >= recent.size,
+          groups: fl.groups.length,
+          walletsInGroups: fl.groups.reduce((t, g) => t + g.wallets.length, 0),
+          tooBig: fl.tooBig.length,
+          pairs: fl.pairs,
+        };
+        log(`funders: ${done} new wallets checked (${known} of ${recent.size}), ${fund.groups} groups, ${fund.walletsInGroups} wallets, ${fl.tooBig.length} service-sized funders skipped`);
+      } catch (e) {
+        log(`funders FAILED (skipped): ${e?.message ?? e}`);
+      }
       // Days of transfer history read, out of the 90-day window (10 s blocks).
       const caughtUp = sc.lastBlock >= best.number;
       const coveredDays = Math.max(0, Math.min(90, Math.floor((sc.lastBlock - (best.number - 90 * 8640)) / 8640)));
-      personOf = personOfFactory([...currentLinks((await loadCache('passportlinks')).events ?? []), ...sw.pairs]);
+      personOf = personOfFactory([...passportPairs, ...sw.pairs, ...(fund?.pairs ?? [])]);
       sweepInfo = {
         coveredDays,
         caughtUp,
         groups: sw.groups.length,
         walletsInGroups: sw.groups.reduce((t, g) => t + g.wallets.length, 0),
-        largest: sw.groups.slice(0, 10).map((g) => ({ dest: g.dest, wallets: g.wallets.length })),
-        tooBig: sw.tooBig.slice(0, 10),
+        // Counts only: no addresses in the public file (nobody is named a
+        // farm without a person looking first).
+        largestGroup: sw.groups[0]?.wallets.length ?? 0,
+        tooBig: sw.tooBig.length,
+        funders: fund ? { ...fund, pairs: undefined } : null,
       };
       log(`sweeps: ${sweepInfo.groups} groups, ${sweepInfo.walletsInGroups} wallets, ${sw.tooBig.length} service-sized destinations skipped, covered ${sweepInfo.coveredDays} days${caughtUp ? '' : ' (catching up)'}`);
     } catch (e) {

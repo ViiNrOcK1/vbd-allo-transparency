@@ -318,10 +318,11 @@ function usersChart(el, data) {
         </div>`,
       )
       .join('')}</div>
-    <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets count as one person when they’re linked in VeBetterDAO’s Passport, or when several of them sent most of their rewards to the same wallet (the usual farm pattern).' : ''}${(() => {
+    <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets count as one person when they’re linked in VeBetterDAO’s Passport, when several of them sent most of their rewards to the same wallet, or when their first VET/VTHO came from the same wallet (the usual farm patterns).' : ''}${(() => {
       const sw = data.users.sweeps;
       if (!sw) return '';
-      return ` ${sw.walletsInGroups.toLocaleString()} wallets in ${sw.groups.toLocaleString()} such groups${sw.caughtUp ? '' : ` (still reading transfer history: ${sw.coveredDays} of 90 days so far, so this grows)`}.`;
+      const f = sw.funders;
+      return ` In the last 90 days: ${sw.walletsInGroups.toLocaleString()} wallets in ${sw.groups.toLocaleString()} groups that sent their rewards (B3TR or VOT3) to the same wallet${sw.caughtUp ? '' : ` (still reading history: ${sw.coveredDays} of 90 days)`}${f ? `, and ${f.walletsInGroups.toLocaleString()} wallets in ${f.groups.toLocaleString()} groups whose first VET or VTHO came from the same wallet${f.caughtUp ? '' : ` (checked ${f.checkedWallets.toLocaleString()} of ${f.ofWallets.toLocaleString()} wallets so far, so this grows)`}` : ''}. A wallet can be in both.`;
     })()} Someone running several wallets they never linked still counts several times, so treat this as a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco.users30 ? ` Across all apps: ${linked && eco.people30 ? `${eco.people30.toLocaleString()} people (${eco.users30.toLocaleString()} wallets)` : `${eco.users30.toLocaleString()} different wallets`}.` : ''}</p>`;
 }
 
