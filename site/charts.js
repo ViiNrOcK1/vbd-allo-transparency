@@ -222,7 +222,7 @@ function usersChart(el, data) {
   }
   const roundTotal = b3(data.totals?.currentRoundToApps) || 0;
   const rows = data.apps
-    .map((a) => ({ a, users: u[a.id]?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null }))
+    .map((a) => ({ a, users: u[a.id.toLowerCase()]?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null }))
     .filter((r) => r.users > 0)
     .sort((x, y) => y.users - x.users)
     .slice(0, 15);
