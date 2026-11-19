@@ -107,9 +107,13 @@ function splitChart(el, apps) {
         const segs = SEGMENTS.filter((s) => widths[s.key] > 0)
           .map((s) => `<i class="${s.cls}" style="width:${widths[s.key].toFixed(2)}%"></i>`)
           .join('');
-        const teamTxt = raw.team < 0 ? `team put back ${pct(-raw.team)} more than it took` : `${pct(raw.team)} team`;
+        // Fubar (#BEASTMODE): a team that never took anything didn't "put
+        // back" — it added its own B3TR. Say which one happened.
+        const tookNone = !(a.ratios?.takenByTeamGrossPct > 0);
+        const negTxt = tookNone ? `team took none and added its own B3TR (+${pct(-raw.team)})` : `team put back ${pct(-raw.team)} more than it took`;
+        const teamTxt = raw.team < 0 ? negTxt : raw.team === 0 && tookNone ? 'team took none' : `${pct(raw.team)} team`;
         const tipHtml = `<strong>${esc(a.name)}</strong><br>${fmt(b3(a.allocation.total))} B3TR allocated, all time<br>${SEGMENTS.map(
-          (s) => `<span class="k ${s.cls}"></span>${s.label}: ${s.key === 'team' && raw.team < 0 ? `−${pct(-raw.team)} (put back more than it took)` : pct(raw[s.key])}`,
+          (s) => `<span class="k ${s.cls}"></span>${s.label}: ${s.key === 'team' && raw.team < 0 ? (tookNone ? `none (added its own B3TR, +${pct(-raw.team)})` : `−${pct(-raw.team)} (put back more than it took)`) : pct(raw[s.key])}`,
         ).join('<br>')}`;
         return `<div class="split-row" tabindex="0" data-tip="${esc(tipHtml)}">
           <div class="split-head"><span class="nm">${esc(a.name)}</span><span class="amt">${fmt(b3(a.allocation.total))} B3TR</span></div>

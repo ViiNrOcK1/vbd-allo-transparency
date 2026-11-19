@@ -191,7 +191,43 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
     const putBackUsd = dollars(myDeposits.filter((d) => d.depositor.toLowerCase() !== xap).map((d) => [d.amount, d.at]));
     const outs = myWallets.flatMap((w) => wallets[w]?.outflows ?? []);
     const soldUsd = dollars(outs.filter((f) => f.kind === 'sold').map((f) => [f.value, f.at, f.usd]));
-    const otherUsd = dollars(outs.filter((f) => f.kind === 'other_wallet' || f.kind === 'other_contract').map((f) => [f.value, f.at]));
+    // "Other wallets" is NET per address: B3TR that the same address sent back
+    // to the team wallets cancels out what went to it (Fubar, #BEASTMODE,
+    // 2026-11-19: 1.6k out to a wallet that had put the same 1.6k in read as
+    // "took 1.6k"). Each address's outflows are scaled by (out − back) / out.
+    const isOther = (k) => k === 'other_wallet' || k === 'other_contract';
+    const backFrom = new Map();
+    for (const w of myWallets) {
+      for (const f of wallets[w]?.inflows ?? []) {
+        if (!isOther(f.kind) || !f.from) continue;
+        const k = f.from.toLowerCase();
+        backFrom.set(k, (backFrom.get(k) ?? ZERO) + f.value);
+      }
+    }
+    const outBy = new Map();
+    for (const f of outs) {
+      if (!isOther(f.kind)) continue;
+      const k = f.to.toLowerCase();
+      if (!outBy.has(k)) outBy.set(k, []);
+      outBy.get(k).push(f);
+    }
+    let otherTotal = 0;
+    let otherUnpriced = ZERO;
+    let otherNetB3tr = ZERO;
+    let otherGrossB3tr = ZERO;
+    for (const [k, fs] of outBy) {
+      const out = fs.reduce((t, f) => t + f.value, ZERO);
+      const back = backFrom.get(k) ?? ZERO;
+      const net = out > back ? out - back : ZERO;
+      otherGrossB3tr += out;
+      otherNetB3tr += net;
+      if (net === ZERO) continue;
+      const d = dollars(fs.map((f) => [f.value, f.at]));
+      const scale = Number((net * 1_000_000n) / out) / 1_000_000;
+      otherTotal += d.total * scale;
+      otherUnpriced += (d.unpriced * net) / out;
+    }
+    const otherUsd = { total: Math.round(otherTotal), unpriced: otherUnpriced };
     const valueUsd = {
       allocation: allocUsd.total,
       takenGross: shareUsd.total + withdrawnUsd.total + Math.round(toOwnTeamUsd),
@@ -200,6 +236,8 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       toEndorsers: Math.round(toEndorsersUsd),
       sold: soldUsd.total,
       toOtherWallets: otherUsd.total,
+      /** B3TR to other wallets/contracts: gross, and net of what each address sent back. */
+      toOtherWalletsB3tr: { gross: otherGrossB3tr.toString(), net: otherNetB3tr.toString() },
       /** B3TR moved on days with no known price (before pools traded). */
       unpricedB3tr: [allocUsd, withdrawnUsd, soldUsd, otherUsd].reduce((a, x) => a + x.unpriced, ZERO).toString(),
     };

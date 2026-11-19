@@ -204,7 +204,10 @@ function detailHtml(a) {
         <dt>Taken by team, net</dt><dd>${usdTxt(a.valueUsd.takenNet)}</dd>
         ${a.valueUsd.putBack ? `<dt>…withdrawn ${usdTxt(a.valueUsd.takenGross)}, put back</dt><dd>${usdTxt(a.valueUsd.putBack)}</dd>` : ''}
         <dt>Sold (proven swaps)</dt><dd>${usdTxt(a.valueUsd.sold)}</dd>
-        <dt>Sent to other wallets</dt><dd>${usdTxt(a.valueUsd.toOtherWallets)}</dd>
+        <dt>Sent to other wallets${(() => {
+          const ow = a.valueUsd.toOtherWalletsB3tr;
+          return ow && ow.gross !== ow.net ? ` <span class="sub">(net of ${fmt(b3(ow.gross) - b3(ow.net))} B3TR the same addresses sent back)</span>` : '';
+        })()}</dt><dd>${usdTxt(a.valueUsd.toOtherWallets)}</dd>
       </dl><p class="fine">Each transfer is valued at that day’s B3TR price. “Other wallets” are usually exchanges or payroll — most of it is likely sold to cover costs, but the chain can’t prove where it ended up.</p></div>` : ''}
     ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
       <p class="fine">${grants > 0 ? `<strong>About ${fmt(grants)} B3TR of this was grant / DAO funding</strong>${viaTxt ? `, partly passed on by ${viaTxt}, which received it from VeBetterDAO` : ''}. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}

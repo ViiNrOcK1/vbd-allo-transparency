@@ -335,6 +335,34 @@ describe('inflows (grants are not allocation)', () => {
     expect(s.apps[0].ratios.grantsShareOfReceiptsPct).toBe(83.3);
   });
 
+  it('B3TR an address sent back cancels what went to it (other wallets are net per address)', () => {
+    const FOUNDER = '0x' + '3'.repeat(40);
+    const STRANGER = '0x' + '7'.repeat(40);
+    const s = summarize({
+      apps: [{ id: A, name: 'Beast', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
+      claims: [],
+      deposits: [],
+      withdrawals: [],
+      poolBalances: {},
+      wallets: {
+        [W1]: {
+          balance: 0n,
+          inflows: [{ from: FOUNDER, value: 1600n * E18, kind: 'other_wallet', at: 10 }],
+          outflows: [
+            { to: FOUNDER, value: 1500n * E18, kind: 'other_wallet', at: 20 },
+            { to: FOUNDER, value: 100n * E18, kind: 'other_wallet', at: 30 },
+            { to: STRANGER, value: 50n * E18, kind: 'other_wallet', at: 40 },
+          ],
+        },
+      },
+      xAllocationPool: MAINNET.xAllocationPool,
+      priceAt: () => 0.1,
+    });
+    const v = s.apps[0].valueUsd;
+    expect(v.toOtherWalletsB3tr).toEqual({ gross: (1650n * E18).toString(), net: (50n * E18).toString() });
+    expect(v.toOtherWallets).toBe(5); // only the 50 to the stranger, at $0.10
+  });
+
   it('a withdrawal to a wallet that never got a claim is still that app’s wallet', () => {
     const s = summarize({
       apps: [{ id: A, name: 'X', active: true, teamWallet: W1, teamAllocationPercentage: 0 }],
