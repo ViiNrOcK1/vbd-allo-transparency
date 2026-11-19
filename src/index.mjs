@@ -14,6 +14,7 @@ import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
+import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
 const args = Object.fromEntries(
@@ -506,12 +507,66 @@ async function main() {
     log(`passport links FAILED (counting wallets only): ${e?.message ?? e}`);
   }
 
+  // Sweeps: reward wallets sending most of their rewards to one wallet
+  // (sweeps.mjs). Reads every B3TR transfer, so it catches up a few weeks
+  // per run instead of all 100 days at once; it links less until covered.
+  let sweepInfo = null;
+  if (payoutCache && personOf) {
+    try {
+      const cached = await loadCache('sweeps');
+      const sc = Array.isArray(cached.rows) ? cached : emptySweeps();
+      const windowStart = Math.max(0, best.number - (SWEEP_KEEP_DAYS + 2) * 8640);
+      const from = Math.max(sc.lastBlock + 1, windowStart);
+      const to = Math.min(best.number, from + 21 * 8640); // ≤ 3 weeks of blocks per run
+      const receivers = new Set(payoutCache.receivers);
+      if (from <= to) {
+        const tl = await thor.logs([{ address: MAINNET.b3tr, topic0: TOPIC.transfer }], from, to);
+        foldSweeps(
+          sc,
+          tl.map((l) => ({
+            at: l.meta.blockTimestamp,
+            from: '0x' + l.topics[1].slice(26),
+            to: '0x' + l.topics[2].slice(26),
+            amount: BigInt(l.data),
+          })),
+          (a) => receivers.has(a),
+          best.timestamp,
+        );
+        sc.lastBlock = to;
+        await saveCache('sweeps', sc);
+        log(`sweeps: blocks ${from}–${to}, ${tl.length} B3TR transfers read, ${sc.rows.length} kept`);
+      }
+      const teamWallets = new Set([...appWallets.values()].flatMap((ws) => [...ws].map((x) => x.toLowerCase())));
+      const vbd = new Set(Object.keys(VBD_CONTRACTS).map((x) => x.toLowerCase()));
+      const cands = candidateDestinations(sc, payoutCache, best.timestamp);
+      await mapLimit(cands, 10, (d) => isContract(d));
+      await saveCache('contracts', contracts);
+      const excluded = (a) => teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]);
+      const sw = sweepLinks(sc, payoutCache, best.timestamp, excluded);
+      const coveredDays = sc.firstTs ? Math.floor((best.timestamp - sc.firstTs) / 86_400) : 0;
+      const caughtUp = sc.lastBlock >= best.number;
+      personOf = personOfFactory([...currentLinks((await loadCache('passportlinks')).events ?? []), ...sw.pairs]);
+      sweepInfo = {
+        coveredDays: caughtUp ? Math.min(coveredDays, 90) : coveredDays,
+        caughtUp,
+        groups: sw.groups.length,
+        walletsInGroups: sw.groups.reduce((t, g) => t + g.wallets.length, 0),
+        largest: sw.groups.slice(0, 10).map((g) => ({ dest: g.dest, wallets: g.wallets.length })),
+        tooBig: sw.tooBig.slice(0, 10),
+      };
+      log(`sweeps: ${sweepInfo.groups} groups, ${sweepInfo.walletsInGroups} wallets, ${sw.tooBig.length} service-sized destinations skipped, covered ${sweepInfo.coveredDays} days${caughtUp ? '' : ' (catching up)'}`);
+    } catch (e) {
+      log(`sweeps FAILED (Passport links only): ${e?.message ?? e}`);
+    }
+  }
+
   // Users per app, now that we know whose wallets are not users.
   if (payoutCache) {
     const excludeOf = {};
     for (const [id, ws] of appWallets) excludeOf[id.toLowerCase()] = new Set([...ws].map((w) => w.toLowerCase()));
     for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
+    users.sweeps = sweepInfo;
     log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30} wallets / ${users.ecosystem.people30} people, 90d ${users.ecosystem.users90} / ${users.ecosystem.people90}`);
   }
 
