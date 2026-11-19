@@ -17,6 +17,7 @@ const fmt = (n) => {
 /** Whole dollars → "$1.2M". */
 const usdTxt = (n) => (n === null || n === undefined ? '—' : (n < 0 ? '−$' : '$') + fmt(Math.abs(n)));
 const pctTxt = (p) => (p === null || p === undefined ? '—' : `${p}%`);
+const shareTxt = (p) => (p < 1 ? 'under 1%' : `${Math.round(p)}%`);
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 const KIND_LABEL = {
@@ -111,8 +112,20 @@ function detailHtml(a) {
     .filter(([, v]) => v > 0)
     .map(([label, v]) => `<dt>${esc(label)}</dt><dd>${fmt(v)}</dd>`)
     .join('');
+  // "Largest recipients": where the team wallet's B3TR went, biggest first.
+  // ReCircleCreator (2026-11-18) found the old one-liner hard to read, so each
+  // entry now says what the address is, its share of everything sent, and
+  // how many transfers it took, in words.
+  // Same basis as the list: moves between its own wallets ('internal') excluded.
+  const sentTotal = Object.entries(sent).reduce((t, [k, v]) => (k === 'internal' ? t : t + b3(v)), 0) || 1;
   const recips = a.teamWallet.topRecipients
-    .map((r) => `<li><a class="addr" href="${EXPLORER}${esc(r.address)}" target="_blank" rel="noopener">${esc(short(r.address))}</a> · ${fmt(b3(r.amount))} B3TR · ${esc(KIND_LABEL[r.kind] ?? r.kind)} (${r.count}×)</li>`)
+    .map((r) => {
+      const amt = b3(r.amount);
+      const n = r.count === 1 ? '1 transfer' : `${r.count} transfers`;
+      return `<li><span class="rk">${esc(KIND_LABEL[r.kind] ?? r.kind)}</span>
+        <a class="addr" href="${EXPLORER}${esc(r.address)}" target="_blank" rel="noopener">${esc(short(r.address))}</a><br>
+        <strong>${fmt(amt)} B3TR</strong> · ${shareTxt((amt / sentTotal) * 100)} of all it sent · ${n}</li>`;
+    })
     .join('');
   const rx = a.teamWallet.received ?? {};
   const rxRows = Object.entries(IN_LABEL)
@@ -188,7 +201,9 @@ function detailHtml(a) {
     ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
       <p class="fine">${grants > 0 ? `<strong>About ${fmt(grants)} B3TR of this was grant / DAO funding</strong>${viaTxt ? `, partly passed on by ${viaTxt}, which received it from VeBetterDAO` : ''}. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
     ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check. B3TR moved to another wallet or an exchange first and sold there isn’t counted, so “sold” is a floor.</p></div>` : ''}
-    ${recips ? `<div class="dbox"><h3>Largest recipients</h3><ol class="recips">${recips}</ol></div>` : ''}
+    ${recips ? `<div class="dbox"><h3>Largest recipients</h3>
+      <p class="fine">The addresses this app’s team wallet sent the most B3TR to, all time, biggest first. The label says what the address is: a B3TR pool (a sale), the app’s own rewards pool, VeBetterDAO, or an <em>other wallet</em> we can’t identify (often an exchange deposit address or payroll, but we don’t assume). Moves between the app’s own wallets aren’t counted. Tap an address to check it on the explorer.</p>
+      <ol class="recips">${recips}</ol></div>` : ''}
   </div>`;
 }
 
