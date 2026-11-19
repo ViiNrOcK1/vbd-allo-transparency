@@ -175,3 +175,16 @@ ol.recips .rk { display: inline-block; font-size: 11px; font-weight: 600; paddin
 .viz-filter button[aria-pressed="true"] { background: var(--accent); color: #000; font-weight: 700; }
 .viz-ctls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .split-more:hover { border-color: var(--accent-2); }
+
+/* People chart: name | bar | people | wallets | dupes | round share */
+.users-row.ppl { grid-template-columns: minmax(90px, 170px) 1fr 52px 52px 42px 50px; }
+.users-row .track { display: flex; height: 100%; border-radius: 0 4px 4px 0; overflow: hidden; background: color-mix(in srgb, var(--s1) 32%, transparent); }
+.users-row .track i { border-radius: 0; }
+.sw.faded { background: color-mix(in srgb, var(--s1) 32%, transparent); }
+.users-row .wl { color: var(--muted); font-size: 12px; }
+.users-row .dp { text-align: right; font-size: 12px; color: var(--warn); font-variant-numeric: tabular-nums; }
+.users-hd .dp { color: var(--muted); font-size: 11px; }
+@media (max-width: 520px) {
+  .users-row.ppl { grid-template-columns: minmax(64px, 26%) 1fr 40px 40px 32px 38px; gap: 4px; font-size: 11px; }
+  .users-row.ppl .wl, .users-row.ppl .dp, .users-row.ppl .sh { font-size: 10.5px; }
+}

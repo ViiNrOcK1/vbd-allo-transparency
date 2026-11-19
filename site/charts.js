@@ -298,17 +298,22 @@ function usersChart(el, data) {
     el.hidden = true;
     return;
   }
-  const max = rows[0].users;
   const eco = data.users.ecosystem ?? {};
   const linked = Boolean(data.users.peopleLinked);
+  // Bars are scaled to wallets: the solid part is people, the faded rest is
+  // the extra wallets merged into them (Vinny: show both, compactly).
+  const max = Math.max(...rows.map((r) => r.wallets || r.users));
+  const dupPct = (r) => (r.wallets > 0 ? Math.round((1 - r.users / r.wallets) * 100) : 0);
   el.innerHTML = `<div class="viz-head"><h3>${linked ? 'People paid in the last 30 days' : 'Wallets paid in the last 30 days'}</h3></div>
-    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">${linked ? 'People' : 'Wallets'}</span><span class="sh">Round share</span></div>
+    ${linked ? '<div class="viz-legend"><span><span class="sw s1"></span>People</span><span><span class="sw s1 faded"></span>Extra wallets merged into them</span></div>' : ''}
+    <div class="users-row ${linked ? 'ppl ' : ''}users-hd" aria-hidden="true"><span></span><span></span><span class="v">${linked ? 'People' : 'Wallets'}</span>${linked ? '<span class="v">Wallets</span><span class="dp">Dupes</span>' : ''}<span class="sh">Round share</span></div>
     <div class="users-rows">${rows
       .map(
-        (r) => `<div class="users-row" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${linked ? `${r.users.toLocaleString()} people (${r.wallets.toLocaleString()} wallets, linked ones merged)` : `${r.users.toLocaleString()} wallets`} paid a reward in the last 30 days${r.share === null ? '' : `<br>${r.share.toFixed(1)}% of round #${data.totals.currentRound}’s allocation`}`)}">
+        (r) => `<div class="users-row${linked ? ' ppl' : ''}" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${linked ? `${r.users.toLocaleString()} people (${r.wallets.toLocaleString()} wallets, linked ones merged)` : `${r.users.toLocaleString()} wallets`} paid a reward in the last 30 days${r.share === null ? '' : `<br>${r.share.toFixed(1)}% of round #${data.totals.currentRound}’s allocation`}`)}">
           <span class="nm">${esc(r.a.name)}</span>
-          <span class="bar"><i class="s1" style="width:${Math.max(0.5, (r.users / max) * 100).toFixed(2)}%"></i></span>
+          <span class="bar">${linked ? `<span class="track" style="width:${Math.max(0.5, ((r.wallets || r.users) / max) * 100).toFixed(2)}%"><i class="s1" style="width:${(r.wallets ? (r.users / r.wallets) * 100 : 100).toFixed(2)}%"></i></span>` : `<i class="s1" style="width:${Math.max(0.5, (r.users / max) * 100).toFixed(2)}%"></i>`}</span>
           <span class="v">${r.users.toLocaleString()}</span>
+          ${linked ? `<span class="v wl">${r.wallets.toLocaleString()}</span><span class="dp">${dupPct(r) > 0 ? `−${dupPct(r)}%` : '0%'}</span>` : ''}
           <span class="sh">${r.share === null ? '—' : `${r.share < 0.1 ? '<0.1' : r.share.toFixed(1)}%`}</span>
         </div>`,
       )
