@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { perRoundTotals, splitOf } from '../site/charts.js';
+import { perRoundTotals, sellerRows, splitOf } from '../site/charts.js';
 
 const E = 10n ** 18n;
 describe('overview charts', () => {
@@ -20,6 +20,19 @@ describe('overview charts', () => {
     expect(out).toEqual([
       { round: 1, allocated: 5, withdrawn: 0 },
       { round: 2, allocated: 30, withdrawn: 4 },
+    ]);
+  });
+  it('counts a shared team wallet once and ranks by sold + moved out', () => {
+    const v = (sold, other, allocation) => ({ sold, toOtherWallets: other, allocation });
+    const rows = sellerRows([
+      { name: 'A', teamWallets: ['0xAA'], valueUsd: v(100, 50, 1000) },
+      { name: 'B', teamWallets: ['0xbb'], valueUsd: v(500, 0, 2000) },
+      { name: 'C', teamWallets: ['0xaa'], valueUsd: v(100, 50, 3000) },
+      { name: 'D', teamWallets: ['0xdd'], valueUsd: v(0, 0, 10) },
+    ]);
+    expect(rows.map((r) => [r.names.join('+'), r.sold, r.other, r.allocated])).toEqual([
+      ['B', 500, 0, 2000],
+      ['A+C', 100, 50, 4000],
     ]);
   });
 });

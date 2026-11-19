@@ -120,13 +120,19 @@ function detailHtml(a) {
   // how many transfers it took, in words.
   // Same basis as the list: moves between its own wallets ('internal') excluded.
   const sentTotal = Object.entries(sent).reduce((t, [k, v]) => (k === 'internal' ? t : t + b3(v)), 0) || 1;
+  // B3TR that came back FROM the same address is shown on the same line, so
+  // a round trip (out and back) reads as one (Fubar, #BEASTMODE, 2026-11-19).
+  const backFrom = new Map((a.teamWallet.topSenders ?? []).map((s) => [s.address.toLowerCase(), b3(s.amount)]));
   const recips = a.teamWallet.topRecipients
     .map((r) => {
       const amt = b3(r.amount);
       const n = r.count === 1 ? '1 transfer' : `${r.count} transfers`;
+      const back = backFrom.get(r.address.toLowerCase()) ?? 0;
+      const net = amt - back;
+      const backTxt = back > 0 ? `<br><span class="sub">This address also sent ${fmt(back)} B3TR to the team wallet${net <= 0.5 ? ' — so it all evened out (net 0 or less)' : `, so net ${fmt(net)} out`}.</span>` : '';
       return `<li><span class="rk">${esc(KIND_LABEL[r.kind] ?? r.kind)}</span>
         <a class="addr" href="${EXPLORER}${esc(r.address)}" target="_blank" rel="noopener">${esc(short(r.address))}</a><br>
-        <strong>${fmt(amt)} B3TR</strong> · ${shareTxt((amt / sentTotal) * 100)} of all it sent · ${n}</li>`;
+        <strong>${fmt(amt)} B3TR</strong> · ${shareTxt((amt / sentTotal) * 100)} of all it sent · ${n}${backTxt}</li>`;
     })
     .join('');
   const rx = a.teamWallet.received ?? {};

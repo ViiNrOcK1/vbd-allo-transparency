@@ -184,3 +184,6 @@ ol.recips .rk { display: inline-block; font-size: 11px; font-weight: 600; paddin
 .viz-tip { position: absolute; z-index: 50; max-width: 280px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(0,0,0,.18); pointer-events: none; }
 .users-hd { color: var(--muted); font-size: 11px; padding-bottom: 0; }
 .users-hd .v, .users-hd .sh { font-size: 11px; }
+@media (max-width: 520px) {
+  .users-row { grid-template-columns: minmax(70px, 30%) 1fr 50px 46px; gap: 6px; font-size: 12px; }
+}

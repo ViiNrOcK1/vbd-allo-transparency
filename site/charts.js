@@ -95,6 +95,8 @@ function splitChart(el, apps) {
     allocated: (a) => b3(a.allocation.total),
     team: (a) => a.ratios?.takenByTeamPct ?? 0,
     users: (a) => a.ratios?.paidToUsersPctOfAllocation ?? 0,
+    // Pokerdutchie: "which app pays the least".
+    usersLeast: (a) => -(a.ratios?.paidToUsersPctOfAllocation ?? 0),
   };
   const draw = () => {
     const rows = [...list].sort((x, y) => sorters[state.sort](y) - sorters[state.sort](x));
@@ -125,6 +127,7 @@ function splitChart(el, apps) {
         <option value="allocated">Most allocated</option>
         <option value="team">Most taken by team</option>
         <option value="users">Most paid to users</option>
+        <option value="usersLeast">Least paid to users</option>
       </select></label></div>
     <div class="viz-legend">${SEGMENTS.map((s) => `<span><span class="k ${s.cls}"></span>${s.label}</span>`).join('')}</div>
     <div class="split-rows"></div>
@@ -213,6 +216,57 @@ function roundsChart(el, apps) {
   hit.addEventListener('pointerleave', leave);
 }
 
+// ── 4. what teams sold / moved out, in dollars at the time ──
+/**
+ * One row per team wallet: apps that share a wallet are one row (their flows
+ * can't be split), so nothing is counted twice. Ranked by sold + moved out.
+ */
+export function sellerRows(apps) {
+  const by = new Map();
+  for (const a of apps) {
+    const v = a.valueUsd;
+    if (!v) continue;
+    const key = [...(a.teamWallets ?? [a.currentTeamWallet ?? a.id])].map((w) => String(w).toLowerCase()).sort().join(',');
+    const r = by.get(key) ?? { names: [], sold: 0, other: 0, allocated: 0 };
+    r.names.push(a.name.trim());
+    // Same wallet → same flows on every app that shares it: take them once.
+    r.sold = Math.max(r.sold, v.sold ?? 0);
+    r.other = Math.max(r.other, v.toOtherWallets ?? 0);
+    r.allocated += v.allocation ?? 0;
+    by.set(key, r);
+  }
+  return [...by.values()].filter((r) => r.sold + r.other > 0).sort((x, y) => y.sold + y.other - (x.sold + x.other));
+}
+
+function sellersChart(el, apps) {
+  const all = sellerRows(apps);
+  if (!all.length) {
+    el.hidden = true;
+    return;
+  }
+  const rows = all.slice(0, 15);
+  const max = rows[0].sold + rows[0].other || 1;
+  const usd = (n) => '$' + fmt(n);
+  const totalSold = all.reduce((t, r) => t + r.sold, 0);
+  const totalOther = all.reduce((t, r) => t + r.other, 0);
+  el.innerHTML = `<div class="viz-head"><h3>Sold or moved out by team wallets, in $ at the time</h3></div>
+    <div class="viz-legend"><span><span class="k s2"></span>Sold (proven swaps)</span><span><span class="k sn"></span>Sent to other wallets (often exchanges or payroll; not proven sales)</span></div>
+    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Total</span><span class="sh">Allocated</span></div>
+    <div class="users-rows">${rows
+      .map((r) => {
+        const name = r.names.join(' + ');
+        const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="k s2"></span>Sold: ${usd(r.sold)}<br><span class="k sn"></span>To other wallets: ${usd(r.other)}<br>Allocation was worth ${usd(r.allocated)} when received`;
+        return `<div class="users-row" tabindex="0" data-tip="${esc(tipHtml)}">
+          <span class="nm">${esc(name)}</span>
+          <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="sn" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}</span>
+          <span class="v">${usd(r.sold + r.other)}</span>
+          <span class="sh">${usd(r.allocated)}</span>
+        </div>`;
+      })
+      .join('')}</div>
+    <p class="fine">All time, each transfer valued at that day’s B3TR price. All apps: ${usd(totalSold)} sold in proven swaps, ${usd(totalOther)} sent to other wallets. “Sold” only counts swaps we can prove on-chain, so it’s a floor. Apps that share one team wallet are one row. Moving B3TR out isn’t wrong in itself — teams pay real costs — this just shows the size.</p>`;
+}
+
 // ── 3. users vs share of the allocation ──
 function usersChart(el, data) {
   const u = data.users?.apps;
@@ -252,9 +306,11 @@ export function renderCharts(data) {
   if (!root || !data?.apps?.length) return;
   root.innerHTML = `<h2>Charts — all apps</h2>
     <div class="viz-card" id="viz-split"></div>
+    <div class="viz-card" id="viz-sellers"></div>
     <div class="viz-card" id="viz-rounds"></div>
     <div class="viz-card" id="viz-users"></div>`;
   splitChart(root.querySelector('#viz-split'), data.apps);
+  sellersChart(root.querySelector('#viz-sellers'), data.apps);
   const rounds = root.querySelector('#viz-rounds');
   roundsChart(rounds, data.apps);
   let lastW = rounds.clientWidth;
