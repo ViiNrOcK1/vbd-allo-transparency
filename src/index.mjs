@@ -13,6 +13,7 @@ import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } fro
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
+import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
 const args = Object.fromEntries(
@@ -482,13 +483,36 @@ async function main() {
     log(`endorser / team rewards FAILED: ${e?.message ?? e}`);
   }
 
+  // Wallets one person linked together through VeBetter Passport.
+  let personOf = null;
+  try {
+    const cached = await loadCache('passportlinks');
+    const pl = Array.isArray(cached.events) ? cached : { lastBlock: -1, events: [] };
+    const fresh = await thor.logs(
+      [TOPIC.linkCreated, TOPIC.linkRemoved, TOPIC.delegationCreated, TOPIC.delegationRevoked].map((t) => ({ address: MAINNET.veBetterPassport, topic0: t })),
+      pl.lastBlock + 1,
+      best.number,
+    );
+    for (const l of fresh) {
+      const e = decodePassportLog(l, TOPIC);
+      if (e) pl.events.push(e);
+    }
+    pl.lastBlock = best.number;
+    await saveCache('passportlinks', pl);
+    const pairs = currentLinks(pl.events);
+    personOf = personOfFactory(pairs);
+    log(`passport links: ${fresh.length} new events, ${pairs.length} links in force`);
+  } catch (e) {
+    log(`passport links FAILED (counting wallets only): ${e?.message ?? e}`);
+  }
+
   // Users per app, now that we know whose wallets are not users.
   if (payoutCache) {
     const excludeOf = {};
     for (const [id, ws] of appWallets) excludeOf[id.toLowerCase()] = new Set([...ws].map((w) => w.toLowerCase()));
     for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
-    users = userStats(payoutCache, best.timestamp, excludeOf);
-    log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30}, 90d ${users.ecosystem.users90}`);
+    users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
+    log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30} wallets / ${users.ecosystem.people30} people, 90d ${users.ecosystem.users90} / ${users.ecosystem.people90}`);
   }
 
   const summary = summarize({

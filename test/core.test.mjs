@@ -398,7 +398,7 @@ describe('users per app', async () => {
     expect(s.apps['0xaa'].topReceiver90).toEqual({ address: W1.toLowerCase(), b3tr: 15, sharePct: 93.8 });
     expect(s.apps['0xaa'].top5SharePct90).toBe(100);
     expect(s.apps['0xbb'].users30).toBe(1);
-    expect(s.ecosystem).toEqual({ users30: 2, users90: 2 });
+    expect(s.ecosystem).toMatchObject({ users30: 2, users90: 2, people30: 2, people90: 2 });
   });
 });
 

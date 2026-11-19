@@ -18,6 +18,8 @@ export const MAINNET = {
   grantsManager: '0x055d20914657834c914d7c44bf65b566ab4b45a2',
   timelock: '0x7B7EaF620d88E38782c6491D7Ce0B8D8cF3227e4',
   b3trMultiSig: '0x4Dd13fcb7b4f7DC19048ce0d23aAEbbDB3f3a1d9',
+  // VeBetter Passport (proxy): where wallets are linked to one person.
+  veBetterPassport: '0x35a267671d8EDD607B2056A9a13E7ba7CF53c8b3',
 };
 
 /**
@@ -86,6 +88,12 @@ export const TOPIC = {
   swapV2: toEventSelector('Swap(address,uint256,uint256,uint256,uint256,address)'),
   mintV2: toEventSelector('Mint(address,uint256,uint256)'),
   sync: toEventSelector('Sync(uint112,uint112)'),
+  // VeBetter Passport: a wallet linked to (or personhood delegated to)
+  // another wallet of the same person. Both addresses are indexed topics.
+  linkCreated: toEventSelector('LinkCreated(address,address)'),
+  linkRemoved: toEventSelector('LinkRemoved(address,address)'),
+  delegationCreated: toEventSelector('DelegationCreated(address,address)'),
+  delegationRevoked: toEventSelector('DelegationRevoked(address,address)'),
   // Uniswap V3 pools, in case one exists for B3TR.
   swapV3: toEventSelector('Swap(address,address,int256,int256,uint160,uint128,int24)'),
 };

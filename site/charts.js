@@ -286,7 +286,11 @@ function usersChart(el, data) {
   }
   const roundTotal = b3(data.totals?.currentRoundToApps) || 0;
   const rows = data.apps
-    .map((a) => ({ a, users: u[a.id.toLowerCase()]?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null }))
+    .map((a) => {
+      const x = u[a.id.toLowerCase()];
+      // People = wallets with Passport-linked ones merged (falls back to wallets).
+      return { a, wallets: x?.users30 ?? 0, users: x?.people30 ?? x?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null };
+    })
     .filter((r) => r.users > 0)
     .sort((x, y) => y.users - x.users)
     .slice(0, 15);
@@ -295,12 +299,13 @@ function usersChart(el, data) {
     return;
   }
   const max = rows[0].users;
-  const eco = data.users.ecosystem?.users30;
-  el.innerHTML = `<div class="viz-head"><h3>Wallets paid in the last 30 days</h3></div>
-    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Wallets</span><span class="sh">Round share</span></div>
+  const eco = data.users.ecosystem ?? {};
+  const linked = Boolean(data.users.peopleLinked);
+  el.innerHTML = `<div class="viz-head"><h3>${linked ? 'People paid in the last 30 days' : 'Wallets paid in the last 30 days'}</h3></div>
+    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">${linked ? 'People' : 'Wallets'}</span><span class="sh">Round share</span></div>
     <div class="users-rows">${rows
       .map(
-        (r) => `<div class="users-row" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${r.users.toLocaleString()} wallets paid a reward in the last 30 days${r.share === null ? '' : `<br>${r.share.toFixed(1)}% of round #${data.totals.currentRound}’s allocation`}`)}">
+        (r) => `<div class="users-row" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${linked ? `${r.users.toLocaleString()} people (${r.wallets.toLocaleString()} wallets, Passport-linked ones merged)` : `${r.users.toLocaleString()} wallets`} paid a reward in the last 30 days${r.share === null ? '' : `<br>${r.share.toFixed(1)}% of round #${data.totals.currentRound}’s allocation`}`)}">
           <span class="nm">${esc(r.a.name)}</span>
           <span class="bar"><i class="s1" style="width:${Math.max(0.5, (r.users / max) * 100).toFixed(2)}%"></i></span>
           <span class="v">${r.users.toLocaleString()}</span>
@@ -308,7 +313,7 @@ function usersChart(el, data) {
         </div>`,
       )
       .join('')}</div>
-    <p class="fine">Different wallets that got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out). Wallets, not people: one person with five wallets counts five times, so this is a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco ? ` Across all apps: ${eco.toLocaleString()} different wallets.` : ''}</p>`;
+    <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets that one person linked together in VeBetterDAO’s Passport (linked or delegated) count as one person.' : ''} Someone running several wallets they never linked still counts several times, so treat this as a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco.users30 ? ` Across all apps: ${linked && eco.people30 ? `${eco.people30.toLocaleString()} people (${eco.users30.toLocaleString()} wallets)` : `${eco.users30.toLocaleString()} different wallets`}.` : ''}</p>`;
 }
 
 /**

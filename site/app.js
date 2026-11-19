@@ -193,7 +193,7 @@ function detailHtml(a) {
       if (!u) return '';
       const top = u.topReceiver90;
       return `<div class="dbox"><h3>Users, last 30 / 90 days</h3><dl class="kv">
-        <dt>Wallets paid, 30 days</dt><dd>${fmt(u.users30)}</dd>
+        <dt>Wallets paid, 30 days</dt><dd>${fmt(u.users30)}</dd>${u.people30 != null && u.people30 !== u.users30 ? `<dt>…as people (Passport-linked wallets merged)</dt><dd>${fmt(u.people30)}</dd>` : ''}
         <dt>Wallets paid, 90 days</dt><dd>${fmt(u.users90)}</dd>
         <dt>B3TR paid to them, 90 days</dt><dd>${fmt(u.b3tr90)}</dd>
         ${top ? `<dt>Biggest single receiver</dt><dd>${top.sharePct}%</dd><dt>Top 5 receivers</dt><dd>${u.top5SharePct90}%</dd>` : ''}
