@@ -32,9 +32,20 @@ export function decodePassportLog(l, TOPIC) {
   return { kind, a: topicAddr(l.topics[1]), b: topicAddr(l.topics[2]), block: l.meta?.blockNumber ?? 0, logIndex: l.meta?.logIndex ?? 0 };
 }
 
-/** pairs [[a, b], …] → address → representative (union-find). */
-export function personOfFactory(pairs) {
+/** No merged "person" may hold more than this many addresses. */
+export const MAX_GROUP = 50;
+
+/**
+ * pairs [[a, b], …] → address → representative (union-find).
+ * A union that would make a group bigger than maxGroup is skipped, so links
+ * can't chain strangers into one giant "person" (2026-11-19: chaining made a
+ * 1,820-wallet group). Pass the most reliable links first (Passport, then
+ * sweeps, then funders): earlier links win when the cap bites.
+ */
+export function personOfFactory(pairs, { maxGroup = MAX_GROUP } = {}) {
   const parent = new Map();
+  const size = new Map();
+  const sz = (r) => size.get(r) ?? 1;
   const find = (x) => {
     let r = x;
     while (parent.has(r) && parent.get(r) !== r) r = parent.get(r);
@@ -46,10 +57,22 @@ export function personOfFactory(pairs) {
     }
     return r;
   };
+  let skipped = 0;
   for (const [a, b] of pairs) {
     const ra = find(a);
     const rb = find(b);
-    if (ra !== rb) parent.set(ra < rb ? rb : ra, ra < rb ? ra : rb);
+    if (ra === rb) continue;
+    if (sz(ra) + sz(rb) > maxGroup) {
+      skipped++;
+      continue;
+    }
+    const [keep, drop] = ra < rb ? [ra, rb] : [rb, ra];
+    parent.set(drop, keep);
+    size.set(keep, sz(ra) + sz(rb));
   }
-  return (addr) => find(String(addr).toLowerCase());
+  personOf.skipped = skipped;
+  function personOf(addr) {
+    return find(String(addr).toLowerCase());
+  }
+  return personOf;
 }

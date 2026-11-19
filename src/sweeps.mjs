@@ -9,15 +9,15 @@
 //     MIN_SHARE of the rewards it received in the window;
 //   - the destination is a plain wallet: not a contract, not any app's team
 //     wallet, not a VeBetterDAO / grant address;
-//   - at least 2 and at most MAX_SENDERS reward wallets do this to the same
-//     destination (more than that looks like a service, e.g. a shop or a
-//     hot wallet, and is reported but not merged).
+//   - at least 2 and at most MAX_SENDERS (50) reward wallets do this to the
+//     same destination (more looks like a service, e.g. a shop or a hot
+//     wallet, or a big farm we can't tell apart from one: reported, not merged).
 // Linked wallets plus their destination become one person (with Passport
 // links, people.mjs). Still a ceiling: a careful farmer with separate
 // collection wallets isn't caught.
 
 export const MIN_SHARE = 0.5;
-export const MAX_SENDERS = 300;
+export const MAX_SENDERS = 50;
 export const KEEP_DAYS = 100;
 const DAY = 86_400;
 

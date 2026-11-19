@@ -632,6 +632,8 @@ async function main() {
         tooBig: sw.tooBig.length,
         funders: fund ? { ...fund, pairs: undefined } : null,
       };
+      sweepInfo.linksSkippedByCap = personOf.skipped ?? 0;
+      log(`links skipped by the 50-wallet group cap: ${sweepInfo.linksSkippedByCap}`);
       log(`sweeps: ${sweepInfo.groups} groups, ${sweepInfo.walletsInGroups} wallets, ${sw.tooBig.length} service-sized destinations skipped, covered ${sweepInfo.coveredDays} days${caughtUp ? '' : ' (catching up)'}`);
     } catch (e) {
       log(`sweeps FAILED (Passport links only): ${e?.message ?? e}`);

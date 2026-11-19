@@ -47,3 +47,24 @@ describe('wallets linked through VeBetter Passport count as one person', () => {
     expect(userStats(c, now).apps['0xapp']).toMatchObject({ users30: 4, people30: 4 });
   });
 });
+
+describe('linking cannot chain strangers into a giant group', () => {
+  it('skips any union that would pass the group cap', () => {
+    const w = (n) => '0x' + String(n).padStart(40, '0');
+    // A chain 1-2-3-4-5: with a cap of 3, only the first three join.
+    const personOf = personOfFactory(
+      [
+        [w(1), w(2)],
+        [w(2), w(3)],
+        [w(3), w(4)],
+        [w(4), w(5)],
+      ],
+      { maxGroup: 3 },
+    );
+    const g = new Set([1, 2, 3].map((n) => personOf(w(n))));
+    expect(g.size).toBe(1);
+    expect(personOf(w(4))).not.toBe(personOf(w(1)));
+    expect(personOf(w(4))).toBe(personOf(w(5)));
+    expect(personOf.skipped).toBe(1);
+  });
+});
