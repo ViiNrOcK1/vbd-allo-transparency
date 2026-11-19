@@ -645,6 +645,24 @@ async function main() {
     for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
     users.sweeps = sweepInfo;
+    // Sanity check on linking: size of the biggest merged groups among
+    // recent reward wallets. A giant group would mean chained false links.
+    if (personOf) {
+      const since90 = best.timestamp - 90 * 86_400;
+      const comp = new Map();
+      const seenW = new Set();
+      for (const [at, , r] of payoutCache.rows) {
+        if (at < since90 || seenW.has(r)) continue;
+        seenW.add(r);
+        const p = personOf(payoutCache.receivers[r]);
+        comp.set(p, (comp.get(p) ?? 0) + 1);
+      }
+      const sizes = [...comp.values()].sort((x, y) => y - x);
+      const hist = { '1': 0, '2-5': 0, '6-20': 0, '21-50': 0, '51-300': 0, '300+': 0 };
+      for (const n of sizes) hist[n === 1 ? '1' : n <= 5 ? '2-5' : n <= 20 ? '6-20' : n <= 50 ? '21-50' : n <= 300 ? '51-300' : '300+']++;
+      users.groupSizes = { largest: sizes.slice(0, 10), hist };
+      log(`linked group sizes (90d wallets): largest ${sizes.slice(0, 10).join(', ')} · histogram ${JSON.stringify(hist)}`);
+    }
     // Per-app wallets vs people, biggest apps first (names and counts only).
     const nameOf = new Map(apps.map((x) => [x.id.toLowerCase(), x.name.trim()]));
     const top = Object.entries(users.apps)
