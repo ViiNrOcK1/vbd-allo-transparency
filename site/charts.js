@@ -88,8 +88,7 @@ function showTip(html, x, y) {
 const hideTip = () => tip && (tip.hidden = true);
 
 // ── 1. where the allocation went ──
-function splitChart(el, apps) {
-  const state = { sort: 'allocated', all: false };
+function splitChart(el, apps, state = { sort: 'allocated', all: false }) {
   const list = apps.filter((a) => b3(a.allocation?.total) > 0);
   const sorters = {
     allocated: (a) => b3(a.allocation.total),
@@ -113,7 +112,7 @@ function splitChart(el, apps) {
         const negTxt = tookNone ? `team took none and added its own B3TR (+${pct(-raw.team)})` : `team put back ${pct(-raw.team)} more than it took`;
         const teamTxt = raw.team < 0 ? negTxt : raw.team === 0 && tookNone ? 'team took none' : `${pct(raw.team)} team`;
         const tipHtml = `<strong>${esc(a.name)}</strong><br>${fmt(b3(a.allocation.total))} B3TR allocated, all time<br>${SEGMENTS.map(
-          (s) => `<span class="k ${s.cls}"></span>${s.label}: ${s.key === 'team' && raw.team < 0 ? (tookNone ? `none (added its own B3TR, +${pct(-raw.team)})` : `−${pct(-raw.team)} (put back more than it took)`) : pct(raw[s.key])}`,
+          (s) => `<span class="sw ${s.cls}"></span>${s.label}: ${s.key === 'team' && raw.team < 0 ? (tookNone ? `none (added its own B3TR, +${pct(-raw.team)})` : `−${pct(-raw.team)} (put back more than it took)`) : pct(raw[s.key])}`,
         ).join('<br>')}`;
         return `<div class="split-row" tabindex="0" data-tip="${esc(tipHtml)}">
           <div class="split-head"><span class="nm">${esc(a.name)}</span><span class="amt">${fmt(b3(a.allocation.total))} B3TR</span></div>
@@ -133,10 +132,11 @@ function splitChart(el, apps) {
         <option value="users">Most paid to users</option>
         <option value="usersLeast">Least paid to users</option>
       </select></label></div>
-    <div class="viz-legend">${SEGMENTS.map((s) => `<span><span class="k ${s.cls}"></span>${s.label}</span>`).join('')}</div>
+    <div class="viz-legend">${SEGMENTS.map((s) => `<span><span class="sw ${s.cls}"></span>${s.label}</span>`).join('')}</div>
     <div class="split-rows"></div>
     <button type="button" class="split-more"></button>
     <p class="fine">Each bar is one app’s whole allocation since it started. The four parts add up to 100%. “Taken by team” is net: what the team took minus what it put back.</p>`;
+  el.querySelector('select').value = state.sort;
   el.querySelector('select').addEventListener('change', (e) => {
     state.sort = e.target.value;
     draw();
@@ -177,7 +177,7 @@ function roundsChart(el, apps) {
   const totalAlloc = pts.reduce((t, p) => t + p.allocated, 0);
   const totalWd = pts.reduce((t, p) => t + p.withdrawn, 0);
   el.innerHTML = `<div class="viz-head"><h3>Every round, all apps</h3></div>
-    <div class="viz-legend"><span><span class="k s1"></span>Allocated to apps</span><span><span class="k s2"></span>Withdrawn by teams from their rewards pools</span></div>
+    <div class="viz-legend"><span><span class="sw s1"></span>Allocated to apps</span><span><span class="sw s2"></span>Withdrawn by teams from their rewards pools</span></div>
     <svg viewBox="0 0 ${W} ${H}" class="viz-svg" role="img" aria-label="B3TR allocated to all apps and withdrawn by teams, per round, rounds ${r0} to ${r1}">
       ${ticks.map((t) => `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/><text class="ax" x="${m.l - 6}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`).join('')}
       ${xt.map((r) => `<text class="ax" x="${x(r)}" y="${H - 8}" text-anchor="${x(r) > W - m.r - 18 ? 'end' : 'middle'}">#${r}</text>`).join('')}
@@ -205,7 +205,7 @@ function roundsChart(el, apps) {
     d2.setAttribute('cy', y(p.withdrawn));
     for (const n of [cross, d1, d2]) n.setAttribute('visibility', 'visible');
     showTip(
-      `<strong>Round #${p.round}</strong><br><span class="k s1"></span>Allocated: ${fmt(p.allocated)} B3TR<br><span class="k s2"></span>Withdrawn by teams: ${fmt(p.withdrawn)} B3TR`,
+      `<strong>Round #${p.round}</strong><br><span class="sw s1"></span>Allocated: ${fmt(p.allocated)} B3TR<br><span class="sw s2"></span>Withdrawn by teams: ${fmt(p.withdrawn)} B3TR`,
       clientX,
       clientY,
     );
@@ -254,15 +254,15 @@ function sellersChart(el, apps) {
   const totalSold = all.reduce((t, r) => t + r.sold, 0);
   const totalOther = all.reduce((t, r) => t + r.other, 0);
   el.innerHTML = `<div class="viz-head"><h3>Sold or moved out by team wallets, in $ at the time</h3></div>
-    <div class="viz-legend"><span><span class="k s2"></span>Sold (proven swaps)</span><span><span class="k sn"></span>Sent to other wallets (often exchanges or payroll; not proven sales)</span></div>
+    <div class="viz-legend"><span><span class="sw s2"></span>Sold (proven swaps)</span><span><span class="sw s4"></span>Sent to other wallets (usually exchanges or payroll)</span></div>
     <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Total</span><span class="sh">Allocated</span></div>
     <div class="users-rows">${rows
       .map((r) => {
         const name = r.names.join(' + ');
-        const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="k s2"></span>Sold: ${usd(r.sold)}<br><span class="k sn"></span>To other wallets: ${usd(r.other)}<br>Allocation was worth ${usd(r.allocated)} when received`;
+        const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="sw s2"></span>Sold: ${usd(r.sold)}<br><span class="sw s4"></span>To other wallets: ${usd(r.other)}<br>Allocation was worth ${usd(r.allocated)} when received`;
         return `<div class="users-row" tabindex="0" data-tip="${esc(tipHtml)}">
           <span class="nm">${esc(name)}</span>
-          <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="sn" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}</span>
+          <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="s4" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}</span>
           <span class="v">${usd(r.sold + r.other)}</span>
           <span class="sh">${usd(r.allocated)}</span>
         </div>`;
@@ -305,6 +305,44 @@ function usersChart(el, data) {
     <p class="fine">Wallets that got at least one reward from the app in the last 30 days (its own team wallets and endorsers left out). The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco ? ` Across all apps: ${eco.toLocaleString()} different wallets.` : ''}</p>`;
 }
 
+/**
+ * Each chart has its own Active / All apps filter, Active by default
+ * (Pokerdutchie, 2026-11-19: active apps are the priority).
+ */
+function withFilter(card, draw) {
+  let mode = 'active';
+  const paint = () => {
+    draw(mode);
+    const head = card.querySelector('.viz-head');
+    if (!head) return;
+    const f = document.createElement('div');
+    f.className = 'viz-filter';
+    f.setAttribute('role', 'group');
+    f.setAttribute('aria-label', 'Which apps');
+    for (const [m, label] of [['active', 'Active apps'], ['all', 'All apps']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.setAttribute('aria-pressed', String(mode === m));
+      b.addEventListener('click', () => {
+        if (mode === m) return;
+        mode = m;
+        card.hidden = false;
+        paint();
+      });
+      f.appendChild(b);
+    }
+    const ctl = head.querySelector('.viz-ctl');
+    const box = document.createElement('div');
+    box.className = 'viz-ctls';
+    box.appendChild(f);
+    if (ctl) box.appendChild(ctl);
+    head.appendChild(box);
+  };
+  paint();
+  return paint;
+}
+
 export function renderCharts(data) {
   const root = document.getElementById('charts');
   if (!root || !data?.apps?.length) return;
@@ -313,17 +351,19 @@ export function renderCharts(data) {
     <div class="viz-card" id="viz-sellers"></div>
     <div class="viz-card" id="viz-rounds"></div>
     <div class="viz-card" id="viz-users"></div>`;
-  splitChart(root.querySelector('#viz-split'), data.apps);
-  sellersChart(root.querySelector('#viz-sellers'), data.apps);
+  const pick = (mode) => (mode === 'all' ? data.apps : data.apps.filter((a) => a.active));
+  const splitState = { sort: 'allocated', all: false };
+  withFilter(root.querySelector('#viz-split'), (mode) => splitChart(root.querySelector('#viz-split'), pick(mode), splitState));
+  withFilter(root.querySelector('#viz-sellers'), (mode) => sellersChart(root.querySelector('#viz-sellers'), pick(mode)));
   const rounds = root.querySelector('#viz-rounds');
-  roundsChart(rounds, data.apps);
+  const repaintRounds = withFilter(rounds, (mode) => roundsChart(rounds, pick(mode)));
   let lastW = rounds.clientWidth;
   window.addEventListener('resize', () => {
     if (Math.abs(rounds.clientWidth - lastW) < 40) return;
     lastW = rounds.clientWidth;
-    roundsChart(rounds, data.apps);
+    repaintRounds();
   });
-  usersChart(root.querySelector('#viz-users'), data);
+  withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }));
   root.hidden = false;
   // Hover and keyboard focus show the same tooltip for bar rows.
   const at = (e) => e.target.closest?.('[data-tip]');
