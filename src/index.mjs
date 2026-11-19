@@ -508,8 +508,9 @@ async function main() {
   }
 
   // Sweeps: reward wallets sending most of their rewards to one wallet
-  // (sweeps.mjs). Reads every B3TR transfer, so it catches up a few weeks
-  // per run instead of all 100 days at once; it links less until covered.
+  // (sweeps.mjs). Reads every B3TR transfer (~430k per 3 weeks, under a
+  // minute), so the whole window is read in one run; the cap only guards
+  // against a slow node.
   let sweepInfo = null;
   if (payoutCache && personOf) {
     try {
@@ -517,7 +518,7 @@ async function main() {
       const sc = Array.isArray(cached.rows) ? cached : emptySweeps();
       const windowStart = Math.max(0, best.number - (SWEEP_KEEP_DAYS + 2) * 8640);
       const from = Math.max(sc.lastBlock + 1, windowStart);
-      const to = Math.min(best.number, from + 21 * 8640); // ≤ 3 weeks of blocks per run
+      const to = Math.min(best.number, from + 120 * 8640); // ≤ 120 days of blocks per run
       const receivers = new Set(payoutCache.receivers);
       if (from <= to) {
         const tl = await thor.logs([{ address: MAINNET.b3tr, topic0: TOPIC.transfer }], from, to);
@@ -543,11 +544,12 @@ async function main() {
       await saveCache('contracts', contracts);
       const excluded = (a) => teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]);
       const sw = sweepLinks(sc, payoutCache, best.timestamp, excluded);
-      const coveredDays = sc.firstTs ? Math.floor((best.timestamp - sc.firstTs) / 86_400) : 0;
+      // Days of transfer history read, out of the 90-day window (10 s blocks).
       const caughtUp = sc.lastBlock >= best.number;
+      const coveredDays = Math.max(0, Math.min(90, Math.floor((sc.lastBlock - (best.number - 90 * 8640)) / 8640)));
       personOf = personOfFactory([...currentLinks((await loadCache('passportlinks')).events ?? []), ...sw.pairs]);
       sweepInfo = {
-        coveredDays: caughtUp ? Math.min(coveredDays, 90) : coveredDays,
+        coveredDays,
         caughtUp,
         groups: sw.groups.length,
         walletsInGroups: sw.groups.reduce((t, g) => t + g.wallets.length, 0),
