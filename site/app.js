@@ -1,5 +1,7 @@
 // Renders data/summary.json. No framework, no tracking.
 
+import { renderCharts } from './charts.js';
+
 const EXPLORER = 'https://explore.vechain.org/accounts/';
 const TX = 'https://explore.vechain.org/transactions/';
 const $ = (s) => document.querySelector(s);
@@ -248,6 +250,11 @@ async function main() {
   const when = new Date(DATA.generatedAt);
   $('#meta').textContent = `Updated ${when.toLocaleString()} · block ${DATA.bestBlock.toLocaleString()} · ${DATA.apps.length} apps`;
   renderTotals(DATA);
+  try {
+    renderCharts(DATA);
+  } catch (e) {
+    console.error('charts', e);
+  }
   const head = document.getElementById('curHead');
   if (head) head.textContent = `Round #${DATA.totals.currentRound}`;
   render();

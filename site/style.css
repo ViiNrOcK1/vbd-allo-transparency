@@ -12,6 +12,8 @@
   --bar-team: #c9a227;
   --bar-sold: #c2410c;
   --radius: 14px;
+  /* Chart series: dataviz reference slots 1-3 + a neutral (validated vs --panel). */
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --sn: #c4c9c5; --grid: #eceeea;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -28,6 +30,7 @@
     --bar-users: #3cc48f;
     --bar-team: #d9b440;
     --bar-sold: #f07a3c;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --sn: #4a5550; --grid: #222b27;
     color-scheme: dark;
   }
 }
@@ -35,6 +38,7 @@
   --bg: #0f1412; --panel: #161d1a; --ink: #e8efeb; --muted: #9aa8a1; --line: #26302c;
   --accent: #3cc48f; --accent-soft: #143127; --warn: #f0a35e; --warn-soft: #3a2616;
   --bar-users: #3cc48f; --bar-team: #d9b440; --bar-sold: #f07a3c; color-scheme: dark;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --sn: #4a5550; --grid: #222b27;
 }
 
 * { box-sizing: border-box; }
@@ -140,3 +144,43 @@ ol.recips .rk { display: inline-block; font-size: 11px; font-weight: 600; paddin
 .checks ul { margin: .5rem 0 0; padding-left: 0; list-style: none; font-size: .9rem; }
 .checks li { margin: .25rem 0; }
 .checks .sub { display: block; opacity: .7; font-size: .8rem; margin-left: 1.1rem; }
+
+/* ── Charts (site/charts.js) ── */
+.charts { margin: 20px 0 8px; }
+.charts h2 { font-size: 20px; margin: 0 0 12px; }
+.viz-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 14px; }
+.viz-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.viz-head h3 { margin: 0; font-size: 16px; }
+.viz-ctl { font-size: 13px; color: var(--muted); }
+.viz-ctl select { margin-left: 4px; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; }
+.viz-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin: 10px 0 8px; }
+.k { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.s1 { --c: var(--s1); } .s2 { --c: var(--s2); } .s3 { --c: var(--s3); } .sn { --c: var(--sn); }
+.k, .split-bar i, .users-row .bar i { background: var(--c); }
+.split-row { padding: 7px 0; border-top: 1px solid var(--line); outline-offset: 2px; }
+.split-row:first-child { border-top: 0; }
+.split-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.split-head .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.split-head .amt, .split-txt { color: var(--muted); font-size: 12px; }
+.split-head .amt { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.split-bar { display: flex; gap: 2px; height: 14px; margin: 5px 0 4px; }
+.split-bar i { display: block; height: 100%; min-width: 2px; }
+.split-bar i:first-child { border-radius: 4px 0 0 4px; }
+.split-bar i:last-child { border-radius: 0 4px 4px 0; }
+.split-bar i:only-child { border-radius: 4px; }
+.split-more { margin-top: 8px; font: inherit; font-size: 13px; color: var(--accent); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+.viz-svg { width: 100%; height: auto; display: block; margin-top: 4px; touch-action: pan-y; }
+.viz-svg .grid { stroke: var(--grid); stroke-width: 1; }
+.viz-svg .ax { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.viz-svg .ln { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; }
+.viz-svg .dot { fill: var(--c); stroke: var(--panel); stroke-width: 2; }
+.viz-svg .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.users-row { display: grid; grid-template-columns: minmax(90px, 170px) 1fr 56px 52px; gap: 8px; align-items: center; font-size: 13px; padding: 4px 0; }
+.users-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.users-row .bar { height: 12px; }
+.users-row .bar i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.users-row .v { text-align: right; font-variant-numeric: tabular-nums; }
+.users-row .sh { text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.viz-tip { position: absolute; z-index: 50; max-width: 280px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(0,0,0,.18); pointer-events: none; }
+.users-hd { color: var(--muted); font-size: 11px; padding-bottom: 0; }
+.users-hd .v, .users-hd .sh { font-size: 11px; }
