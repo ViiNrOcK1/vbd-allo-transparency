@@ -569,6 +569,13 @@ async function main() {
     for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
     users.sweeps = sweepInfo;
+    // Per-app wallets vs people, biggest apps first (names and counts only).
+    const nameOf = new Map(apps.map((x) => [x.id.toLowerCase(), x.name.trim()]));
+    const top = Object.entries(users.apps)
+      .sort((x, y) => y[1].users30 - x[1].users30)
+      .slice(0, 20)
+      .map(([id, u]) => `${nameOf.get(id) ?? id.slice(0, 10)} ${u.users30}→${u.people30} (−${u.users30 ? Math.round((1 - u.people30 / u.users30) * 100) : 0}%)`);
+    log(`wallets→people, 30d: ${top.join(' · ')}`);
     log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30} wallets / ${users.ecosystem.people30} people, 90d ${users.ecosystem.users90} / ${users.ecosystem.people90}`);
   }
 
