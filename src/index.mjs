@@ -15,7 +15,7 @@ import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderLinks } from './funders.mjs';
-const SERVICE_HUB_TX = 2000;
+const SERVICE_HUB_TX = 1000;
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -588,7 +588,7 @@ async function main() {
       const excluded = (a) => a === ZERO_A || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
       // Shared wallets with service-level activity (audit: 'Thunder Legacy',
       // 42,932 transactions since 2018) are services, not collectors.
-      const hubAct = await loadCache('hubactivity'); // addr → { day, n }
+      const hubAct = await loadCache('hubactivity2'); // addr → { day, n }
       const week = Math.floor(best.timestamp / 86_400 / 7);
       const pre = sweepLinks(sc, payoutCache, best.timestamp, excluded);
       let hubErr = 0;
@@ -603,7 +603,7 @@ async function main() {
           }
         },
       );
-      await saveCache('hubactivity', hubAct);
+      await saveCache('hubactivity2', hubAct);
       const busyHub = (d) => hubAct[d]?.day === week && hubAct[d].n >= SERVICE_HUB_TX;
       if (hubErr) log(`sweeps: ${hubErr} shared-wallet activity lookups failed (kept as collectors)`);
       const sw = sweepLinks(sc, payoutCache, best.timestamp, (a) => excluded(a) || busyHub(a));
@@ -643,7 +643,7 @@ async function main() {
         // Busy funders = exchanges / services (audit: Coinbase, Binance, MEXC,
         // Bitget hot wallets were the biggest "funders"). Lifetime VET and
         // VTHO transfers out (capped), re-checked weekly.
-        const busy = await loadCache('busyfunders3'); // addr → { week, n }
+        const busy = await loadCache('busyfunders4'); // addr → { week, n }
         const today = Math.floor(best.timestamp / 86_400 / 7);
         let busyErr = 0;
         let firstErr = '';
@@ -660,7 +660,7 @@ async function main() {
             }
           },
         );
-        await saveCache('busyfunders3', busy);
+        await saveCache('busyfunders4', busy);
         if (busyErr) log(`funders: ${busyErr} activity lookups failed (treated as services); first error: ${firstErr}`);
         const isService = (f) => !(busy[f]?.day === today) || busy[f].n > busyLimit(counts.get(f) ?? 0);
         const fl = funderLinks(fc, [...recent], excluded, { isService });

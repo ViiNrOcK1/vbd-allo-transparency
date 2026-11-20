@@ -12,7 +12,7 @@
 // its own farm wallets; an exchange sends to huge numbers of other wallets.
 // So a funder is a service (never links) when its lifetime VET + VTHO
 // transfers out exceed busyLimit(fundedRewardWallets). Counts cap at BUSY_CAP.
-export const BUSY_CAP = 2000;
+export const BUSY_CAP = 1000; // the node refuses limit > 1,000 (HTTP 403)
 export const busyLimit = (funded) => 3 * funded + 50;
 
 export const MAX_FUNDED = 300;
