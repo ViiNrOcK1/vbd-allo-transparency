@@ -29,7 +29,7 @@ const [payouts, excl, groups, sweeps, funders, summary] = await Promise.all([
   load('payouts'),
   load('excludeof').catch(() => ({})),
   load('auditgroups'),
-  load('sweeps'),
+  load('sweeps2'),
   load('funders'),
   readFile('site/data/summary.json', 'utf8').then(JSON.parse),
 ]);

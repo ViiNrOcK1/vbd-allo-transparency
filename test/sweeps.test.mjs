@@ -36,6 +36,7 @@ describe('sweeps: reward wallets that send most of their rewards to one wallet',
   it('links wallets that sweep to the same destination, not small payments', () => {
     const { p, s } = setup();
     expect(s.rows).toHaveLength(5);
+    expect(s.otherIn[FARM]).toBeTruthy(); // the non-receiver's transfer counted as public traffic
     const { groups, pairs } = sweepLinks(s, p, now, () => false);
     expect(groups).toEqual([{ dest: FARM, wallets: [w(1), w(2), w(3)] }]);
     expect(pairs).toHaveLength(3);
@@ -60,5 +61,18 @@ describe('sweeps: reward wallets that send most of their rewards to one wallet',
     foldSweeps(s, [{ at: now - day, from: w(1), to: FARM, amount: 10n * E }, { at: now - day, from: w(1), to: w(1), amount: E }], () => true, now);
     expect(s.rows).toHaveLength(1);
     expect(sweepLinks(s, p, now, () => false).groups).toEqual([]);
+  });
+
+  it('treats a destination the public also pays as a service, and ignores paying with own money', () => {
+    const { p, s } = setup();
+    foldSweeps(s, Array.from({ length: 150 }, (_, i) => ({ at: now - day, from: w(5000 + i), to: FARM, amount: E })), (f) => p.receivers.includes(f), now);
+    const r = sweepLinks(s, p, now, () => false);
+    expect(r.groups).toEqual([]);
+    expect(r.services).toEqual([{ dest: FARM, senders: 3 }]);
+    const p2 = emptyPayouts();
+    foldPayouts(p2, [1, 2].map((n) => ({ at: now - 5 * day, appId: '0xAPP', receiver: w(n), amount: 100n * E })), now);
+    const s2 = emptySweeps();
+    foldSweeps(s2, [1, 2].map((n) => ({ at: now - day, from: w(n), to: SHOP, amount: 500n * E })), () => true, now);
+    expect(sweepLinks(s2, p2, now, () => false).groups).toEqual([]);
   });
 });

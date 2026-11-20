@@ -21,8 +21,18 @@ export const MAX_SENDERS = 1000;
 export const KEEP_DAYS = 100;
 const DAY = 86_400;
 
-/** Empty cache: rows are [unixTs, fromIdx, toIdx, b3trWhole]. */
-export const emptySweeps = () => ({ lastBlock: -1, firstTs: null, addrs: [], rows: [] });
+/** Empty cache: rows are [unixTs, fromIdx, toIdx, b3trWhole]; otherIn counts
+ * transfers INTO each address from wallets that aren't reward receivers, by
+ * day (address → { day: n }), so services (paymasters, shops, sponsors) that
+ * the public pays can be told apart from a farm's collection wallet. */
+export const emptySweeps = () => ({ lastBlock: -1, firstTs: null, addrs: [], rows: [], otherIn: {} });
+
+/** Above this many transfers from non-reward wallets in the window, a
+ * destination is a public service, not one person's collection wallet. */
+export const SERVICE_OTHER_IN = 100;
+/** A sweep forwards rewards: sending more than this multiple of what the
+ * wallet earned means it's paying with its own money (e.g. a 500 B3TR price). */
+export const MAX_SENT_MULTIPLE = 2;
 
 /**
  * Add B3TR transfers (only those whose sender passes keepFrom) and drop rows
@@ -40,15 +50,27 @@ export function foldSweeps(c, transfers, keepFrom, nowTs) {
     }
     return i;
   };
+  c.otherIn ??= {};
   for (const t of transfers) {
     const from = t.from.toLowerCase();
     const to = t.to.toLowerCase();
-    if (from === to || !keepFrom(from)) continue;
+    if (from === to) continue;
+    if (!keepFrom(from)) {
+      const d = Math.floor(t.at / DAY);
+      const m = (c.otherIn[to] ??= {});
+      m[d] = (m[d] ?? 0) + 1;
+      continue;
+    }
     c.rows.push([t.at, id(from), id(to), Number(t.amount / 10n ** 15n) / 1000]);
     if (c.firstTs == null || t.at < c.firstTs) c.firstTs = t.at;
   }
   const cutoff = nowTs - KEEP_DAYS * DAY;
   c.rows = c.rows.filter((r) => r[0] >= cutoff);
+  const cutDay = Math.floor(cutoff / DAY);
+  for (const [a, m] of Object.entries(c.otherIn)) {
+    for (const d of Object.keys(m)) if (Number(d) < cutDay) delete m[d];
+    if (!Object.keys(m).length) delete c.otherIn[a];
+  }
   if (c.firstTs != null && c.firstTs < cutoff) c.firstTs = cutoff;
   return c;
 }
@@ -60,7 +82,7 @@ export function foldSweeps(c, transfers, keepFrom, nowTs) {
  * @param isExcluded (addr) => true for contracts / team wallets / DAO addresses
  * @returns {{ pairs: string[][], groups: {dest:string, wallets:string[]}[], tooBig: {dest:string, senders:number}[] }}
  */
-export function sweepLinks(sweeps, payouts, nowTs, isExcluded, { windowDays = 90, minShare = MIN_SHARE, maxSenders = MAX_SENDERS } = {}) {
+export function sweepLinks(sweeps, payouts, nowTs, isExcluded, { windowDays = 90, minShare = MIN_SHARE, maxSenders = MAX_SENDERS, serviceOtherIn = SERVICE_OTHER_IN, maxSentMultiple = MAX_SENT_MULTIPLE } = {}) {
   const since = nowTs - windowDays * DAY;
   const rewards = new Map();
   for (const [at, , r, amt] of payouts.rows) {
@@ -78,15 +100,22 @@ export function sweepLinks(sweeps, payouts, nowTs, isExcluded, { windowDays = 90
   for (const [k, amt] of sent) {
     const [from, to] = k.split('|');
     const got = rewards.get(from) ?? 0;
-    if (got <= 0 || amt < minShare * got) continue;
+    if (got <= 0 || amt < minShare * got || amt > maxSentMultiple * got + 1) continue;
     if (!sendersOf.has(to)) sendersOf.set(to, new Set());
     sendersOf.get(to).add(from);
   }
   const pairs = [];
   const groups = [];
   const tooBig = [];
+  const sinceDay = Math.floor(since / DAY);
+  const otherInOf = (a) => Object.entries(sweeps.otherIn?.[a] ?? {}).reduce((t, [d, n]) => (Number(d) >= sinceDay ? t + n : t), 0);
+  const services = [];
   for (const [dest, s] of sendersOf) {
     if (s.size < 2 || isExcluded(dest)) continue;
+    if (otherInOf(dest) > serviceOtherIn) {
+      services.push({ dest, senders: s.size });
+      continue;
+    }
     if (s.size > maxSenders) {
       tooBig.push({ dest, senders: s.size });
       continue;
@@ -97,7 +126,7 @@ export function sweepLinks(sweeps, payouts, nowTs, isExcluded, { windowDays = 90
   }
   groups.sort((a, b) => b.wallets.length - a.wallets.length);
   tooBig.sort((a, b) => b.senders - a.senders);
-  return { pairs, groups, tooBig };
+  return { pairs, groups, tooBig, services };
 }
 
 /** Destinations worth checking for contract code (≥2 qualifying senders). */

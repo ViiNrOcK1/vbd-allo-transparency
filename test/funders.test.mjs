@@ -22,4 +22,9 @@ describe('same funder', () => {
     ]);
     expect(r.tooBig).toEqual([{ funder: w(400), wallets: 3 }]);
   });
+
+  it('a busy funder (exchange or service) never links anyone', () => {
+    const ff = { [w(1)]: w(100), [w(2)]: w(100) };
+    expect(funderLinks(ff, Object.keys(ff), () => false, { isService: (a) => a === w(100) }).groups).toEqual([]);
+  });
 });

@@ -113,6 +113,28 @@ export function createThor({ node = DEFAULT_NODE, fetchImpl = fetch, retries = 4
       return l ? { from: String(l.sender).toLowerCase(), at: l.meta.blockTimestamp, block: l.meta.blockNumber } : null;
     },
 
+    /** How many VET transfers `sender` made in [from, to], capped at `cap`. */
+    async countVetOut(sender, from, to, cap = 1000) {
+      const r = await post('/logs/transfer', {
+        range: { unit: 'block', from, to },
+        options: { offset: 0, limit: cap },
+        criteriaSet: [{ sender }],
+        order: 'desc',
+      });
+      return Array.isArray(r) ? r.length : 0;
+    },
+
+    /** How many event logs match `criteria` in [from, to], capped at `cap`. */
+    async countLogs(criteria, from, to, cap = 1000) {
+      const r = await post('/logs/event', {
+        range: { unit: 'block', from, to },
+        options: { offset: 0, limit: cap },
+        criteriaSet: [criteria],
+        order: 'desc',
+      });
+      return Array.isArray(r) ? r.length : 0;
+    },
+
     /** The first log matching one criteria object up to block `to`, or null. */
     async firstLog(criteria, to) {
       const r = await post('/logs/event', {

@@ -7,6 +7,11 @@
 // strangers: the funder must not be a contract, a team wallet, a VeBetterDAO
 // or grant address, or the zero address; and it must have funded at most
 // MAX_FUNDED reward wallets. Bigger funders are reported, not merged.
+// Audit 2026-11-19: the biggest "funders" were Coinbase, Binance, MEXC and
+// Bitget hot wallets (exchange withdrawals). So a funder that made
+// BUSY_FUNDER or more VET transfers in the last 30 days is a service and
+// never links anyone (isService).
+export const BUSY_FUNDER = 500;
 
 export const MAX_FUNDED = 300;
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -23,11 +28,11 @@ export function earliestFunding(...cands) {
  * @param wallets     reward wallets to consider
  * @param isExcluded  (addr) => true for contracts, team wallets, DAO addresses
  */
-export function funderLinks(firstFunder, wallets, isExcluded, { maxFunded = MAX_FUNDED } = {}) {
+export function funderLinks(firstFunder, wallets, isExcluded, { maxFunded = MAX_FUNDED, isService = () => false } = {}) {
   const funded = new Map();
   for (const w of wallets) {
     const f = firstFunder[w];
-    if (!f || f === ZERO || f === w || isExcluded(f)) continue;
+    if (!f || f === ZERO || f === w || isExcluded(f) || isService(f)) continue;
     if (!funded.has(f)) funded.set(f, []);
     funded.get(f).push(w);
   }

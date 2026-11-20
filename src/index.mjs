@@ -14,7 +14,7 @@ import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
-import { earliestFunding, funderLinks } from './funders.mjs';
+import { BUSY_FUNDER, earliestFunding, funderLinks } from './funders.mjs';
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -517,7 +517,9 @@ async function main() {
   let sweepInfo = null;
   if (payoutCache && personOf) {
     try {
-      const cached = await loadCache('sweeps');
+      // 'sweeps2': the audit added otherIn (transfers from non-reward
+      // wallets), so the window is read again once.
+      const cached = await loadCache('sweeps2');
       const sc = Array.isArray(cached.rows) ? cached : emptySweeps();
       const windowStart = Math.max(0, best.number - (SWEEP_KEEP_DAYS + 2) * 8640);
       const from = Math.max(sc.lastBlock + 1, windowStart);
@@ -537,7 +539,7 @@ async function main() {
           best.timestamp,
         );
         sc.lastBlock = to;
-        await saveCache('sweeps', sc);
+        await saveCache('sweeps2', sc);
         log(`sweeps: blocks ${from}–${to}, ${tl.length} B3TR transfers read, ${sc.rows.length} kept`);
       }
       // VOT3 too (Vinny, 2026-11-19): some farmers convert to VOT3 first and
@@ -558,7 +560,7 @@ async function main() {
             best.timestamp,
           );
           sc.lastBlockVot3 = vTo;
-          await saveCache('sweeps', sc);
+          await saveCache('sweeps2', sc);
           log(`sweeps: ${vl.length} VOT3 transfers read`);
         }
       }
@@ -602,7 +604,33 @@ async function main() {
         for (const w of recent) if (fc[w]) counts.set(fc[w], (counts.get(fc[w]) ?? 0) + 1);
         await mapLimit(funderCands.filter((f) => counts.get(f) >= 2), 10, (f) => isContract(f));
         await saveCache('contracts', contracts);
-        const fl = funderLinks(fc, [...recent], excluded);
+        // Busy funders = exchanges / services (audit: Coinbase, Binance, MEXC,
+        // Bitget hot wallets were the biggest "funders"). VET and VTHO
+        // transfers out in the last 30 days, re-checked daily.
+        const busy = await loadCache('busyfunders'); // addr → { day, n }
+        const today = Math.floor(best.timestamp / 86_400);
+        const VTHO_ADDR = '0x0000000000000000000000000000456E65726779';
+        await mapLimit(
+          funderCands.filter((f) => counts.get(f) >= 2 && busy[f]?.day !== today),
+          8,
+          async (f) => {
+            try {
+              const lo = best.number - 30 * 8640;
+              const [vet, vtho] = await Promise.all([
+                thor.countVetOut(f, lo, best.number, BUSY_FUNDER),
+                thor.countLogs({ address: VTHO_ADDR, topic0: TOPIC.transfer, topic1: '0x' + '0'.repeat(24) + f.slice(2) }, lo, best.number, BUSY_FUNDER),
+              ]);
+              busy[f] = { day: today, n: vet + vtho };
+            } catch {
+              /* unknown: treated as busy below, so it can't link anyone */
+            }
+          },
+        );
+        await saveCache('busyfunders', busy);
+        const isService = (f) => !(busy[f]?.day === today) || busy[f].n >= BUSY_FUNDER;
+        const fl = funderLinks(fc, [...recent], excluded, { isService });
+        const busyCount = funderCands.filter((f) => counts.get(f) >= 2 && isService(f)).length;
+        log(`funders: ${busyCount} busy funders (exchanges/services) never link`);
         const known = [...recent].filter((w) => w in fc).length;
         fund = {
           checkedWallets: known,
@@ -671,6 +699,7 @@ async function main() {
       };
       sweepInfo.linksSkippedByCap = personOf.skipped ?? 0;
       log(`links skipped by the 5,000-address group cap: ${sweepInfo.linksSkippedByCap}`);
+      log(`sweeps: ${sw.services.length} shared wallets treated as public services (paymasters, shops, sponsors)`);
       log(`sweeps: ${sweepInfo.groups} groups, ${sweepInfo.walletsInGroups} wallets, ${sw.tooBig.length} service-sized destinations skipped, covered ${sweepInfo.coveredDays} days${caughtUp ? '' : ' (catching up)'}`);
     } catch (e) {
       log(`sweeps FAILED (Passport links only): ${e?.message ?? e}`);
