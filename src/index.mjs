@@ -14,7 +14,7 @@ import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
-import { BUSY_FUNDER, earliestFunding, funderLinks } from './funders.mjs';
+import { BUSY_CAP, busyLimit, earliestFunding, funderLinks } from './funders.mjs';
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -605,20 +605,19 @@ async function main() {
         await mapLimit(funderCands.filter((f) => counts.get(f) >= 2), 10, (f) => isContract(f));
         await saveCache('contracts', contracts);
         // Busy funders = exchanges / services (audit: Coinbase, Binance, MEXC,
-        // Bitget hot wallets were the biggest "funders"). VET and VTHO
-        // transfers out in the last 30 days, re-checked daily.
-        const busy = await loadCache('busyfunders'); // addr → { day, n }
-        const today = Math.floor(best.timestamp / 86_400);
+        // Bitget hot wallets were the biggest "funders"). Lifetime VET and
+        // VTHO transfers out (capped), re-checked weekly.
+        const busy = await loadCache('busyfunders2'); // addr → { day, n }
+        const today = Math.floor(best.timestamp / 86_400 / 7);
         const VTHO_ADDR = '0x0000000000000000000000000000456E65726779';
         await mapLimit(
           funderCands.filter((f) => counts.get(f) >= 2 && busy[f]?.day !== today),
           8,
           async (f) => {
             try {
-              const lo = best.number - 30 * 8640;
               const [vet, vtho] = await Promise.all([
-                thor.countVetOut(f, lo, best.number, BUSY_FUNDER),
-                thor.countLogs({ address: VTHO_ADDR, topic0: TOPIC.transfer, topic1: '0x' + '0'.repeat(24) + f.slice(2) }, lo, best.number, BUSY_FUNDER),
+                thor.countVetOut(f, 0, best.number, BUSY_CAP),
+                thor.countLogs({ address: VTHO_ADDR, topic0: TOPIC.transfer, topic1: '0x' + '0'.repeat(24) + f.slice(2) }, 0, best.number, BUSY_CAP),
               ]);
               busy[f] = { day: today, n: vet + vtho };
             } catch {
@@ -626,8 +625,8 @@ async function main() {
             }
           },
         );
-        await saveCache('busyfunders', busy);
-        const isService = (f) => !(busy[f]?.day === today) || busy[f].n >= BUSY_FUNDER;
+        await saveCache('busyfunders2', busy);
+        const isService = (f) => !(busy[f]?.day === today) || busy[f].n > busyLimit(counts.get(f) ?? 0);
         const fl = funderLinks(fc, [...recent], excluded, { isService });
         const busyCount = funderCands.filter((f) => counts.get(f) >= 2 && isService(f)).length;
         log(`funders: ${busyCount} busy funders (exchanges/services) never link`);

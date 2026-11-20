@@ -8,10 +8,12 @@
 // or grant address, or the zero address; and it must have funded at most
 // MAX_FUNDED reward wallets. Bigger funders are reported, not merged.
 // Audit 2026-11-19: the biggest "funders" were Coinbase, Binance, MEXC and
-// Bitget hot wallets (exchange withdrawals). So a funder that made
-// BUSY_FUNDER or more VET transfers in the last 30 days is a service and
-// never links anyone (isService).
-export const BUSY_FUNDER = 500;
+// Bitget hot wallets (exchange withdrawals). A farm's funder sends mostly to
+// its own farm wallets; an exchange sends to huge numbers of other wallets.
+// So a funder is a service (never links) when its lifetime VET + VTHO
+// transfers out exceed busyLimit(fundedRewardWallets). Counts cap at BUSY_CAP.
+export const BUSY_CAP = 2000;
+export const busyLimit = (funded) => 3 * funded + 50;
 
 export const MAX_FUNDED = 300;
 const ZERO = '0x0000000000000000000000000000000000000000';
