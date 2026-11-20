@@ -323,7 +323,7 @@ function usersChart(el, data, state = { all: false }, repaint = () => {}) {
   // the extra wallets merged into them (Vinny: show both, compactly).
   const max = Math.max(1, ...allRows.map((r) => r.wallets || r.users));
   const dupPct = (r) => (r.wallets > 0 ? Math.round((1 - r.users / r.wallets) * 100) : 0);
-  el.innerHTML = `<div class="viz-head"><h3>${linked ? 'People paid in the last 30 days' : 'Wallets paid in the last 30 days'}</h3></div>
+  el.innerHTML = `<div class="viz-head"><h3>${linked ? 'Multi-wallet users &amp; connections · last 30 days' : 'Wallets paid in the last 30 days'}</h3></div>
     ${linked ? '<div class="viz-legend"><span><span class="sw s1"></span>People</span><span><span class="sw s1 faded"></span>Extra wallets merged into them</span></div>' : ''}
     <div class="users-row ${linked ? 'ppl ' : ''}users-hd" aria-hidden="true"><span></span><span></span><span class="v">${linked ? 'People' : 'Wallets'}</span>${linked ? '<span class="v">Wallets</span><span class="dp">Dupes</span>' : ''}<span class="sh">Round share</span></div>
     <div class="users-rows">${rows
