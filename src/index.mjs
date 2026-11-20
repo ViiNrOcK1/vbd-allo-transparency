@@ -15,6 +15,7 @@ import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderLinks } from './funders.mjs';
+const SERVICE_HUB_TX = 2000;
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -569,9 +570,44 @@ async function main() {
       const cands = candidateDestinations(sc, payoutCache, best.timestamp);
       await mapLimit(cands, 10, (d) => isContract(d));
       await saveCache('contracts', contracts);
+      // Lifetime-ish activity (last 365 days): VET, VTHO and B3TR transfers
+      // out, each capped. Exchanges and services run into the thousands; a
+      // farm's funder or collection wallet makes a few hundred at most.
+      const VTHO_ADDR = '0x0000000000000000000000000000456E65726779';
+      const yearAgo = Math.max(0, best.number - 365 * 8640);
+      const pad = (a) => '0x' + '0'.repeat(24) + a.slice(2);
+      async function activityOut(a) {
+        const [vet, vtho, b3tr] = await Promise.all([
+          thor.countVetOut(a, yearAgo, best.number, BUSY_CAP),
+          thor.countLogs({ address: VTHO_ADDR, topic0: TOPIC.transfer, topic1: pad(a) }, yearAgo, best.number, BUSY_CAP),
+          thor.countLogs({ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(a) }, yearAgo, best.number, BUSY_CAP),
+        ]);
+        return vet + vtho + b3tr;
+      }
       const ZERO_A = '0x' + '0'.repeat(40);
       const excluded = (a) => a === ZERO_A || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
-      const sw = sweepLinks(sc, payoutCache, best.timestamp, excluded);
+      // Shared wallets with service-level activity (audit: 'Thunder Legacy',
+      // 42,932 transactions since 2018) are services, not collectors.
+      const hubAct = await loadCache('hubactivity'); // addr → { day, n }
+      const week = Math.floor(best.timestamp / 86_400 / 7);
+      const pre = sweepLinks(sc, payoutCache, best.timestamp, excluded);
+      let hubErr = 0;
+      await mapLimit(
+        pre.groups.map((g) => g.dest).filter((d) => hubAct[d]?.day !== week),
+        6,
+        async (d) => {
+          try {
+            hubAct[d] = { day: week, n: await activityOut(d) };
+          } catch {
+            hubErr++;
+          }
+        },
+      );
+      await saveCache('hubactivity', hubAct);
+      const busyHub = (d) => hubAct[d]?.day === week && hubAct[d].n >= SERVICE_HUB_TX;
+      if (hubErr) log(`sweeps: ${hubErr} shared-wallet activity lookups failed (kept as collectors)`);
+      const sw = sweepLinks(sc, payoutCache, best.timestamp, (a) => excluded(a) || busyHub(a));
+      log(`sweeps: ${pre.groups.filter((g) => busyHub(g.dest)).length} shared wallets dropped for service-level activity (${SERVICE_HUB_TX}+ transfers out in a year)`);
 
       // Same funder (funders.mjs): each reward wallet's first VET / VTHO.
       // Never changes, so it's cached forever; up to 6,000 new wallets per
@@ -607,25 +643,25 @@ async function main() {
         // Busy funders = exchanges / services (audit: Coinbase, Binance, MEXC,
         // Bitget hot wallets were the biggest "funders"). Lifetime VET and
         // VTHO transfers out (capped), re-checked weekly.
-        const busy = await loadCache('busyfunders2'); // addr → { day, n }
+        const busy = await loadCache('busyfunders3'); // addr → { week, n }
         const today = Math.floor(best.timestamp / 86_400 / 7);
-        const VTHO_ADDR = '0x0000000000000000000000000000456E65726779';
+        let busyErr = 0;
+        let firstErr = '';
         await mapLimit(
           funderCands.filter((f) => counts.get(f) >= 2 && busy[f]?.day !== today),
-          8,
+          6,
           async (f) => {
             try {
-              const [vet, vtho] = await Promise.all([
-                thor.countVetOut(f, 0, best.number, BUSY_CAP),
-                thor.countLogs({ address: VTHO_ADDR, topic0: TOPIC.transfer, topic1: '0x' + '0'.repeat(24) + f.slice(2) }, 0, best.number, BUSY_CAP),
-              ]);
-              busy[f] = { day: today, n: vet + vtho };
-            } catch {
+              busy[f] = { day: today, n: await activityOut(f) };
+            } catch (e) {
+              busyErr++;
+              firstErr ||= String(e?.message ?? e).slice(0, 160);
               /* unknown: treated as busy below, so it can't link anyone */
             }
           },
         );
-        await saveCache('busyfunders2', busy);
+        await saveCache('busyfunders3', busy);
+        if (busyErr) log(`funders: ${busyErr} activity lookups failed (treated as services); first error: ${firstErr}`);
         const isService = (f) => !(busy[f]?.day === today) || busy[f].n > busyLimit(counts.get(f) ?? 0);
         const fl = funderLinks(fc, [...recent], excluded, { isService });
         const busyCount = funderCands.filter((f) => counts.get(f) >= 2 && isService(f)).length;
