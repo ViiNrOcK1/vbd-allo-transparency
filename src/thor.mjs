@@ -124,6 +124,11 @@ export function createThor({ node = DEFAULT_NODE, fetchImpl = fetch, retries = 4
       return r?.[0] ?? null;
     },
 
+    async block(n) {
+      const b = await request(`/blocks/${n}`);
+      return b ? { number: b.number, timestamp: b.timestamp } : null;
+    },
+
     async hasCode(address) {
       const r = await request(`/accounts/${address}/code`);
       return typeof r.code === 'string' && r.code !== '0x' && r.code.length > 2;

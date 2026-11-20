@@ -622,6 +622,9 @@ async function main() {
       const caughtUp = sc.lastBlock >= best.number;
       const coveredDays = Math.max(0, Math.min(90, Math.floor((sc.lastBlock - (best.number - 90 * 8640)) / 8640)));
       personOf = personOfFactory([...passportPairs, ...sw.pairs, ...(fund?.pairs ?? [])]);
+      // For scripts/audit.mjs only. The Actions cache is private to this
+      // repo's workflows; the audit encrypts anything with addresses.
+      await saveCache('auditgroups', { sweeps: sw.groups, funders: fund?.groupList ?? [], passport: passportPairs });
       // What the biggest merged groups are made of (counts only): one huge
       // sweep hub is strong evidence of a farm; a long chain of small hubs
       // would be weaker.
@@ -679,6 +682,7 @@ async function main() {
     const excludeOf = {};
     for (const [id, ws] of appWallets) excludeOf[id.toLowerCase()] = new Set([...ws].map((w) => w.toLowerCase()));
     for (const [id, es] of Object.entries(endorsersOf)) for (const e of es) (excludeOf[id] ??= new Set()).add(e);
+    await saveCache('excludeof', Object.fromEntries(Object.entries(excludeOf).map(([k, v]) => [k, [...v]])));
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
     users.sweeps = sweepInfo;
     // Sanity check on linking: size of the biggest merged groups among

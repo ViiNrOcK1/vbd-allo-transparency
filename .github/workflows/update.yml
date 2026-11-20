@@ -47,6 +47,20 @@ jobs:
       - name: Summary
         run: node scripts/report.mjs site/data/summary.json
 
+      # Accuracy audit: per-round counts in plain text; the sample of merged
+      # groups (addresses) is encrypted with audit/audit-public.pem, so only
+      # the holder of the private key can read it from this public log.
+      - name: Audit
+        continue-on-error: true
+        run: |
+          node scripts/audit.mjs
+          openssl rand -out audit/key.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in audit/sample.json -out audit/sample.enc -pass file:audit/key.bin
+          openssl pkeyutl -encrypt -pubin -inkey audit/audit-public.pem -pkeyopt rsa_padding_mode:oaep -in audit/key.bin -out audit/key.enc
+          echo "AUDIT-KEY-BEGIN"; base64 -w0 audit/key.enc; echo; echo "AUDIT-KEY-END"
+          echo "AUDIT-DATA-BEGIN"; base64 -w0 audit/sample.enc; echo; echo "AUDIT-DATA-END"
+          rm -f audit/key.bin audit/sample.json
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
