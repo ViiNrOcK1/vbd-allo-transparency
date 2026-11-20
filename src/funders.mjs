@@ -8,7 +8,7 @@
 // or grant address, or the zero address; and it must have funded at most
 // MAX_FUNDED reward wallets. Bigger funders are reported, not merged.
 
-export const MAX_FUNDED = 50;
+export const MAX_FUNDED = 300;
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 /** Earliest of the candidate first-fundings, or null. */

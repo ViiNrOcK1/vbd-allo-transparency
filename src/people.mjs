@@ -33,7 +33,7 @@ export function decodePassportLog(l, TOPIC) {
 }
 
 /** No merged "person" may hold more than this many addresses. */
-export const MAX_GROUP = 50;
+export const MAX_GROUP = 5000;
 
 /**
  * pairs [[a, b], …] → address → representative (union-find).

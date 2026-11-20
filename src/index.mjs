@@ -612,6 +612,7 @@ async function main() {
           walletsInGroups: fl.groups.reduce((t, g) => t + g.wallets.length, 0),
           tooBig: fl.tooBig.length,
           pairs: fl.pairs,
+          groupList: fl.groups,
         };
         log(`funders: ${done} new wallets checked (${known} of ${recent.size}), ${fund.groups} groups, ${fund.walletsInGroups} wallets, ${fl.tooBig.length} service-sized funders skipped`);
       } catch (e) {
@@ -621,6 +622,39 @@ async function main() {
       const caughtUp = sc.lastBlock >= best.number;
       const coveredDays = Math.max(0, Math.min(90, Math.floor((sc.lastBlock - (best.number - 90 * 8640)) / 8640)));
       personOf = personOfFactory([...passportPairs, ...sw.pairs, ...(fund?.pairs ?? [])]);
+      // What the biggest merged groups are made of (counts only): one huge
+      // sweep hub is strong evidence of a farm; a long chain of small hubs
+      // would be weaker.
+      {
+        const hubInfo = new Map(); // group → { sweepHubs, funderHubs, passport, biggestHub }
+        const bump = (g, k, n = 1) => {
+          const x = hubInfo.get(g) ?? { sweepHubs: 0, funderHubs: 0, passport: 0, biggestSweepHub: 0, biggestFunderHub: 0 };
+          x[k] = k.startsWith('biggest') ? Math.max(x[k], n) : x[k] + n;
+          hubInfo.set(g, x);
+        };
+        for (const g of sw.groups) {
+          const p = personOf(g.dest);
+          bump(p, 'sweepHubs');
+          bump(p, 'biggestSweepHub', g.wallets.length);
+        }
+        for (const g of fund?.groupList ?? []) {
+          const p = personOf(g.funder);
+          bump(p, 'funderHubs');
+          bump(p, 'biggestFunderHub', g.wallets.length);
+        }
+        for (const [a] of passportPairs) bump(personOf(a), 'passport');
+        const since90 = best.timestamp - 90 * 86_400;
+        const size = new Map();
+        const seen = new Set();
+        for (const [at, , r] of payoutCache.rows) {
+          if (at < since90 || seen.has(r)) continue;
+          seen.add(r);
+          const p = personOf(payoutCache.receivers[r]);
+          size.set(p, (size.get(p) ?? 0) + 1);
+        }
+        const top = [...size.entries()].sort((x, y) => y[1] - x[1]).slice(0, 8);
+        for (const [p, n] of top) log(`group of ${n} reward wallets: ${JSON.stringify(hubInfo.get(p) ?? {})}`);
+      }
       sweepInfo = {
         coveredDays,
         caughtUp,
@@ -630,7 +664,7 @@ async function main() {
         // farm without a person looking first).
         largestGroup: sw.groups[0]?.wallets.length ?? 0,
         tooBig: sw.tooBig.length,
-        funders: fund ? { ...fund, pairs: undefined } : null,
+        funders: fund ? { ...fund, pairs: undefined, groupList: undefined } : null,
       };
       sweepInfo.linksSkippedByCap = personOf.skipped ?? 0;
       log(`links skipped by the 50-wallet group cap: ${sweepInfo.linksSkippedByCap}`);

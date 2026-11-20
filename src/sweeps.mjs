@@ -17,7 +17,7 @@
 // collection wallets isn't caught.
 
 export const MIN_SHARE = 0.5;
-export const MAX_SENDERS = 50;
+export const MAX_SENDERS = 1000;
 export const KEEP_DAYS = 100;
 const DAY = 86_400;
 
