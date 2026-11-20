@@ -1,6 +1,6 @@
 // Renders data/summary.json. No framework, no tracking.
 
-import { renderCharts } from './charts.js';
+import { renderCharts } from './charts.js?v=__V__';
 
 const EXPLORER = 'https://explore.vechain.org/accounts/';
 const TX = 'https://explore.vechain.org/transactions/';

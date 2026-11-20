@@ -61,6 +61,11 @@ jobs:
           echo "AUDIT-DATA-BEGIN"; base64 -w0 audit/sample.enc; echo; echo "AUDIT-DATA-END"
           rm -f audit/key.bin audit/sample.json
 
+      # Cache-busting: every deploy gets fresh script/style URLs, so browsers
+      # never keep showing an old chart after an update.
+      - name: Version assets
+        run: sed -i "s/__V__/${GITHUB_SHA::8}-${GITHUB_RUN_ID}/g" site/index.html site/app.js
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
