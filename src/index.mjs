@@ -570,11 +570,13 @@ async function main() {
       const cands = candidateDestinations(sc, payoutCache, best.timestamp);
       await mapLimit(cands, 10, (d) => isContract(d));
       await saveCache('contracts', contracts);
-      // Lifetime-ish activity (last 365 days): VET, VTHO and B3TR transfers
-      // out, each capped. Exchanges and services run into the thousands; a
-      // farm's funder or collection wallet makes a few hundred at most.
+      // Lifetime activity: VET, VTHO and B3TR transfers out over the whole
+      // chain, each capped at 1,000 (node limit). Exchanges and services run
+      // into the thousands; a farm's funder or collection wallet makes a few
+      // hundred at most. Whole history, because old exchange hot wallets
+      // (e.g. Binance 1) funded wallets years ago and are quiet now.
       const VTHO_ADDR = '0x0000000000000000000000000000456E65726779';
-      const yearAgo = Math.max(0, best.number - 365 * 8640);
+      const yearAgo = 0;
       const pad = (a) => '0x' + '0'.repeat(24) + a.slice(2);
       async function activityOut(a) {
         const [vet, vtho, b3tr] = await Promise.all([
@@ -588,7 +590,7 @@ async function main() {
       const excluded = (a) => a === ZERO_A || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
       // Shared wallets with service-level activity (audit: 'Thunder Legacy',
       // 42,932 transactions since 2018) are services, not collectors.
-      const hubAct = await loadCache('hubactivity2'); // addr → { day, n }
+      const hubAct = await loadCache('hubactivity3'); // addr → { day, n }
       const week = Math.floor(best.timestamp / 86_400 / 7);
       const pre = sweepLinks(sc, payoutCache, best.timestamp, excluded);
       let hubErr = 0;
@@ -603,11 +605,11 @@ async function main() {
           }
         },
       );
-      await saveCache('hubactivity2', hubAct);
+      await saveCache('hubactivity3', hubAct);
       const busyHub = (d) => hubAct[d]?.day === week && hubAct[d].n >= SERVICE_HUB_TX;
       if (hubErr) log(`sweeps: ${hubErr} shared-wallet activity lookups failed (kept as collectors)`);
       const sw = sweepLinks(sc, payoutCache, best.timestamp, (a) => excluded(a) || busyHub(a));
-      log(`sweeps: ${pre.groups.filter((g) => busyHub(g.dest)).length} shared wallets dropped for service-level activity (${SERVICE_HUB_TX}+ transfers out in a year)`);
+      log(`sweeps: ${pre.groups.filter((g) => busyHub(g.dest)).length} shared wallets dropped for service-level activity (${SERVICE_HUB_TX}+ transfers out, whole history)`);
 
       // Same funder (funders.mjs): each reward wallet's first VET / VTHO.
       // Never changes, so it's cached forever; up to 6,000 new wallets per
@@ -643,7 +645,7 @@ async function main() {
         // Busy funders = exchanges / services (audit: Coinbase, Binance, MEXC,
         // Bitget hot wallets were the biggest "funders"). Lifetime VET and
         // VTHO transfers out (capped), re-checked weekly.
-        const busy = await loadCache('busyfunders4'); // addr → { week, n }
+        const busy = await loadCache('busyfunders5'); // addr → { week, n }
         const today = Math.floor(best.timestamp / 86_400 / 7);
         let busyErr = 0;
         let firstErr = '';
@@ -660,7 +662,7 @@ async function main() {
             }
           },
         );
-        await saveCache('busyfunders4', busy);
+        await saveCache('busyfunders5', busy);
         if (busyErr) log(`funders: ${busyErr} activity lookups failed (treated as services); first error: ${firstErr}`);
         const isService = (f) => !(busy[f]?.day === today) || busy[f].n > busyLimit(counts.get(f) ?? 0);
         const fl = funderLinks(fc, [...recent], excluded, { isService });
