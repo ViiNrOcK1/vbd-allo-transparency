@@ -226,6 +226,22 @@ function roundsChart(el, apps) {
   hit.addEventListener('pointerleave', leave);
 }
 
+// Lists show the top TOP_N rows, with a button for every app (Vinny,
+// 2026-11-19: every active app, and with "All apps" every app ever listed).
+const TOP_N = 15;
+function showAllButton(el, total, state, repaint) {
+  if (total <= TOP_N) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'split-more';
+  b.textContent = state.all ? `Show top ${TOP_N}` : `Show all ${total} apps`;
+  b.addEventListener('click', () => {
+    state.all = !state.all;
+    repaint();
+  });
+  el.querySelector('.users-rows').after(b);
+}
+
 // ── 4. what teams sold / moved out, in dollars at the time ──
 /**
  * One row per team wallet: apps that share a wallet are one row (their flows
@@ -245,17 +261,18 @@ export function sellerRows(apps) {
     r.allocated += v.allocation ?? 0;
     by.set(key, r);
   }
-  return [...by.values()].filter((r) => r.sold + r.other > 0).sort((x, y) => y.sold + y.other - (x.sold + x.other));
+  // Every team wallet, including ones that never sold or moved anything out.
+  return [...by.values()].sort((x, y) => y.sold + y.other - (x.sold + x.other) || x.names[0].localeCompare(y.names[0]));
 }
 
-function sellersChart(el, apps) {
+function sellersChart(el, apps, state = { all: false }, repaint = () => {}) {
   const all = sellerRows(apps);
   if (!all.length) {
     el.hidden = true;
     return;
   }
-  const rows = all.slice(0, 15);
-  const max = rows[0].sold + rows[0].other || 1;
+  const rows = state.all ? all : all.slice(0, TOP_N);
+  const max = all[0].sold + all[0].other || 1;
   const usd = (n) => '$' + fmt(n);
   const totalSold = all.reduce((t, r) => t + r.sold, 0);
   const totalOther = all.reduce((t, r) => t + r.other, 0);
@@ -268,17 +285,18 @@ function sellersChart(el, apps) {
         const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="sw s2"></span>Sold: ${usd(r.sold)}<br><span class="sw s4"></span>To other wallets: ${usd(r.other)}<br>Allocation was worth ${usd(r.allocated)} when received`;
         return `<div class="users-row" tabindex="0" data-tip="${esc(tipHtml)}">
           <span class="nm">${esc(name)}</span>
-          <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="s4" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}</span>
+          <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="s4" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}${!r.sold && !r.other ? '<span class="none">none</span>' : ''}</span>
           <span class="v">${usd(r.sold + r.other)}</span>
           <span class="sh">${usd(r.allocated)}</span>
         </div>`;
       })
       .join('')}</div>
     <p class="fine">All time, each transfer valued at that day’s B3TR price. All apps: ${usd(totalSold)} sold in proven swaps, ${usd(totalOther)} sent to other wallets. “Sold” only counts swaps we can prove on-chain, so it’s a floor. Apps that share one team wallet are one row. Moving B3TR out isn’t wrong in itself — teams pay real costs — this just shows the size.</p>`;
+  showAllButton(el, all.length, state, repaint);
 }
 
 // ── 3. users vs share of the allocation ──
-function usersChart(el, data) {
+function usersChart(el, data, state = { all: false }, repaint = () => {}) {
   const u = data.users?.apps;
   if (!u) {
     el.hidden = true;
@@ -291,9 +309,10 @@ function usersChart(el, data) {
       // People = wallets with Passport-linked ones merged (falls back to wallets).
       return { a, wallets: x?.users30 ?? 0, users: x?.people30 ?? x?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null };
     })
-    .filter((r) => r.users > 0)
-    .sort((x, y) => y.users - x.users)
-    .slice(0, 15);
+    // Every app in the filter, including ones with nobody paid this month.
+    .sort((x, y) => y.users - x.users || y.wallets - x.wallets || x.a.name.localeCompare(y.a.name));
+  const allRows = rows.slice();
+  if (!state.all) rows.splice(TOP_N);
   if (!rows.length) {
     el.hidden = true;
     return;
@@ -302,7 +321,7 @@ function usersChart(el, data) {
   const linked = Boolean(data.users.peopleLinked);
   // Bars are scaled to wallets: the solid part is people, the faded rest is
   // the extra wallets merged into them (Vinny: show both, compactly).
-  const max = Math.max(...rows.map((r) => r.wallets || r.users));
+  const max = Math.max(1, ...allRows.map((r) => r.wallets || r.users));
   const dupPct = (r) => (r.wallets > 0 ? Math.round((1 - r.users / r.wallets) * 100) : 0);
   el.innerHTML = `<div class="viz-head"><h3>${linked ? 'People paid in the last 30 days' : 'Wallets paid in the last 30 days'}</h3></div>
     ${linked ? '<div class="viz-legend"><span><span class="sw s1"></span>People</span><span><span class="sw s1 faded"></span>Extra wallets merged into them</span></div>' : ''}
@@ -322,8 +341,9 @@ function usersChart(el, data) {
       const sw = data.users.sweeps;
       if (!sw) return '';
       const f = sw.funders;
-      return ` In the last 90 days: ${sw.walletsInGroups.toLocaleString()} wallets in ${sw.groups.toLocaleString()} groups that sent their rewards (B3TR or VOT3) to the same wallet${sw.caughtUp ? '' : ` (still reading history: ${sw.coveredDays} of 90 days)`}${f ? `, and ${f.walletsInGroups.toLocaleString()} wallets in ${f.groups.toLocaleString()} groups whose first VET or VTHO came from the same wallet${f.caughtUp ? '' : ` (checked ${f.checkedWallets.toLocaleString()} of ${f.ofWallets.toLocaleString()} wallets so far, so this grows)`}` : ''}. A wallet can be in both.${data.users.groupSizes?.largest?.[0] > 50 ? ` The biggest linked network has ${data.users.groupSizes.largest[0].toLocaleString()} reward wallets.` : ''} We count every linked network as one person: deliberate multi-wallet setups are rarely innocent.`;
-    })()} Someone running several wallets they never linked still counts several times, so treat this as a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco.users30 ? ` Across all apps: ${linked && eco.people30 ? `${eco.people30.toLocaleString()} people (${eco.users30.toLocaleString()} wallets)` : `${eco.users30.toLocaleString()} different wallets`}.` : ''}</p>`;
+      return ` In the last 90 days: ${sw.walletsInGroups.toLocaleString()} wallets in ${sw.groups.toLocaleString()} groups that sent their rewards (B3TR or VOT3) to the same wallet${sw.caughtUp ? '' : ` (still reading history: ${sw.coveredDays} of 90 days)`}${f ? `, and ${f.walletsInGroups.toLocaleString()} wallets in ${f.groups.toLocaleString()} groups whose first VET or VTHO came from the same wallet${f.caughtUp ? '' : ` (checked ${f.checkedWallets.toLocaleString()} of ${f.ofWallets.toLocaleString()} wallets so far, so this grows)`}` : ''}. A wallet can be in both.${data.users.groupSizes?.largest?.[0] > 50 ? ` The biggest linked networks have ${data.users.groupSizes.largest.filter((n) => n > 50).map((n) => n.toLocaleString()).join(', ')} reward wallets.` : ''} We count every linked network as one person: deliberate multi-wallet setups are rarely innocent.`;
+    })()} Someone running several wallets they never linked still counts several times, so treat this as a ceiling on real users. The right column is the app’s share of round #${data.totals.currentRound}’s allocation, so you can compare who has users with who gets the B3TR.${eco.users30 ? ` Across all apps: ${linked && eco.people30 ? `${eco.people30.toLocaleString()} people from ${eco.users30.toLocaleString()} wallets in 30 days (−${Math.round((1 - eco.people30 / eco.users30) * 100)}%)${eco.people90 ? `; ${eco.people90.toLocaleString()} people from ${eco.users90.toLocaleString()} wallets in 90 days (−${Math.round((1 - eco.people90 / eco.users90) * 100)}%)` : ''}` : `${eco.users30.toLocaleString()} different wallets`}.` : ''}</p>`;
+  showAllButton(el, allRows.length, state, repaint);
 }
 
 /**
@@ -378,7 +398,9 @@ export function renderCharts(data) {
   root.hidden = false;
   const splitState = { sort: 'allocated', all: false };
   withFilter(root.querySelector('#viz-split'), (mode) => splitChart(root.querySelector('#viz-split'), pick(mode), splitState));
-  withFilter(root.querySelector('#viz-sellers'), (mode) => sellersChart(root.querySelector('#viz-sellers'), pick(mode)));
+  const sellersState = { all: false };
+  let repaintSellers = () => {};
+  repaintSellers = withFilter(root.querySelector('#viz-sellers'), (mode) => sellersChart(root.querySelector('#viz-sellers'), pick(mode), sellersState, () => repaintSellers()));
   const rounds = root.querySelector('#viz-rounds');
   const repaintRounds = withFilter(rounds, (mode) => roundsChart(rounds, pick(mode)));
   let lastW = rounds.clientWidth;
@@ -389,7 +411,9 @@ export function renderCharts(data) {
   };
   if (typeof ResizeObserver === 'function') new ResizeObserver(onResize).observe(rounds);
   else window.addEventListener('resize', onResize);
-  withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }));
+  const usersState = { all: false };
+  let repaintUsers = () => {};
+  repaintUsers = withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }, usersState, () => repaintUsers()));
   // Hover and keyboard focus show the same tooltip for bar rows.
   const at = (e) => e.target.closest?.('[data-tip]');
   root.addEventListener('pointermove', (e) => {

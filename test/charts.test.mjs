@@ -30,7 +30,7 @@ describe('overview charts', () => {
       { name: 'C', teamWallets: ['0xaa'], valueUsd: v(100, 50, 3000) },
       { name: 'D', teamWallets: ['0xdd'], valueUsd: v(0, 0, 10) },
     ]);
-    expect(rows.map((r) => [r.names.join('+'), r.sold, r.other, r.allocated])).toEqual([
+    expect(rows.filter((r) => r.sold + r.other > 0).map((r) => [r.names.join('+'), r.sold, r.other, r.allocated])).toEqual([
       ['B', 500, 0, 2000],
       ['A+C', 100, 50, 4000],
     ]);
