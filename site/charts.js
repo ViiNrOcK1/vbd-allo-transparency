@@ -384,6 +384,75 @@ function withFilter(card, draw) {
   return paint;
 }
 
+
+// ── 5. rewards paid to linked multi-wallet networks (Vinny, 2026-11-21:
+// "it should show these numbers so it can be proved from the data alone") ──
+export function networkRows(apps, users) {
+  return apps
+    .map((a) => {
+      const x = users?.[a.id.toLowerCase()];
+      return { a, total: x?.b3tr90 ?? 0, net: x?.toNetworks90 ?? 0, wallets: x?.networkWallets90 ?? 0 };
+    })
+    .filter((r) => r.net > 0)
+    .sort((x, y) => y.net - x.net || x.a.name.localeCompare(y.a.name));
+}
+
+function networksChart(el, data, state = { all: false }, repaint = () => {}) {
+  const u = data.users?.apps;
+  if (!u || !data.users.peopleLinked) {
+    el.hidden = true;
+    return;
+  }
+  const allRows = networkRows(data.apps, u);
+  const rows = state.all ? allRows : allRows.slice(0, TOP_N);
+  const nameOf = new Map((data.allApps ?? data.apps).map((a) => [a.id.toLowerCase(), a.name.trim()]));
+  const reviewed = data.users.reviewedNetworks ?? [];
+  const totalNet = allRows.reduce((t, r) => t + r.net, 0);
+  const vcs = (w) => `https://vechainstats.com/account/${w}`;
+  const short = (w) => `${w.slice(0, 6)}…${w.slice(-4)}`;
+  el.innerHTML = `<div class="viz-head"><h3>Rewards paid to linked multi-wallet networks · last 90 days</h3></div>
+    <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">B3TR</span><span class="sh">Of app</span></div>
+    <div class="users-rows">${
+      rows.length
+        ? rows
+            .map((r) => {
+              const p = r.total ? (r.net / r.total) * 100 : 0;
+              return `<div class="users-row" tabindex="0" data-tip="${esc(`<strong>${esc(r.a.name)}</strong><br>${Math.round(r.net).toLocaleString()} of ${Math.round(r.total).toLocaleString()} B3TR in rewards (90 days) went to ${r.wallets.toLocaleString()} wallets that belong to a linked network of 2+ wallets`)}">
+          <span class="nm">${esc(r.a.name)}</span>
+          <span class="bar"><i class="s2" style="width:${Math.max(0.5, p).toFixed(2)}%"></i></span>
+          <span class="v">${fmt(r.net)}</span>
+          <span class="sh">${p < 1 ? '<1' : Math.round(p)}%</span>
+        </div>`;
+            })
+            .join('')
+        : '<p class="fine">No rewards went to linked networks in these apps.</p>'
+    }</div>
+    <p class="fine">B3TR each app paid in the last 90 days to wallets that belong to a linked network: one person’s 2+ reward wallets, linked by the rules under the chart above. The bar is that part of the app’s rewards. ${fmt(totalNet)} B3TR across the apps shown. Not every network is a farm (some people simply use two wallets), so the hand-reviewed ones are listed below with their evidence.</p>
+    ${
+      reviewed.length
+        ? `<h4 class="rv-h">Hand-reviewed networks</h4>${reviewed
+            .map((n) => {
+              const apps = Object.entries(n.byApp90 ?? {}).map(([id, b]) => `${esc(nameOf.get(id) ?? id.slice(0, 10))} ${Math.round(b).toLocaleString()}`);
+              const v = n.votes90;
+              const votes = v && v.voters
+                ? `${v.voters} of these wallets voted (round${v.rounds.length > 1 ? `s ${v.rounds[0]}–${v.rounds.at(-1)}` : ` ${v.rounds[0]}`}): ${Object.entries(v.vot3ByApp)
+                    .map(([id, w]) => `${Math.round(w).toLocaleString()} VOT3 for ${esc(nameOf.get(id) ?? id.slice(0, 10))}`)
+                    .join(', ')}.`
+                : 'No votes from these wallets in the last 90 days.';
+              return `<div class="rv">
+          <p><strong>${n.rewardWallets90.toLocaleString()} reward wallets · ${n.b3tr90.toLocaleString()} B3TR in 90 days</strong> (${apps.join(' · ') || '—'})</p>
+          <p>${votes}</p>
+          <p class="fine">${esc(n.evidence)}</p>
+          <div class="fine">Reviewed by ${esc(n.reviewedBy)}, ${esc(n.date)}. <details><summary>All ${n.members.length} wallets</summary>${n.members.map((w) => `<a href="${vcs(w)}" rel="noopener">${short(w)}</a>`).join(' ')}</details></div>
+        </div>`;
+            })
+            .join('')}
+    <p class="fine"><strong>These links are estimates from public on-chain data and can be wrong.</strong> We correct them as new evidence comes in. Spot a mistake? Tell us and we’ll check it.</p>`
+        : ''
+    }`;
+  showAllButton(el, allRows.length, state, repaint);
+}
+
 export function renderCharts(data) {
   const root = document.getElementById('charts');
   if (!root || !data?.apps?.length) return;
@@ -391,7 +460,8 @@ export function renderCharts(data) {
     <div class="viz-card" id="viz-split"></div>
     <div class="viz-card" id="viz-sellers"></div>
     <div class="viz-card" id="viz-rounds"></div>
-    <div class="viz-card" id="viz-users"></div>`;
+    <div class="viz-card" id="viz-users"></div>
+    <div class="viz-card" id="viz-networks"></div>`;
   const pick = (mode) => (mode === 'all' ? data.apps : data.apps.filter((a) => a.active));
   // Visible BEFORE drawing, so the line chart measures its real width (it was
   // measuring a hidden card and drawing at 280px, then scaling up huge).
@@ -414,6 +484,9 @@ export function renderCharts(data) {
   const usersState = { all: false };
   let repaintUsers = () => {};
   repaintUsers = withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }, usersState, () => repaintUsers()));
+  const netState = { all: false };
+  let repaintNet = () => {};
+  repaintNet = withFilter(root.querySelector('#viz-networks'), (mode) => networksChart(root.querySelector('#viz-networks'), { ...data, apps: pick(mode), allApps: data.apps }, netState, () => repaintNet()));
   // Hover and keyboard focus show the same tooltip for bar rows.
   const at = (e) => e.target.closest?.('[data-tip]');
   root.addEventListener('pointermove', (e) => {

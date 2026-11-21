@@ -36,3 +36,12 @@ describe('overview charts', () => {
     ]);
   });
 });
+
+import { networkRows } from '../site/charts.js';
+describe('rewards to linked networks', () => {
+  it('ranks apps by B3TR paid to networks and skips apps with none', () => {
+    const apps = [{ id: '0xA', name: 'A' }, { id: '0xB', name: 'B' }, { id: '0xC', name: 'C' }];
+    const users = { '0xa': { b3tr90: 100, toNetworks90: 10, networkWallets90: 2 }, '0xb': { b3tr90: 50, toNetworks90: 40, networkWallets90: 9 }, '0xc': { b3tr90: 5 } };
+    expect(networkRows(apps, users).map((r) => [r.a.name, r.net])).toEqual([['B', 40], ['A', 10]]);
+  });
+});

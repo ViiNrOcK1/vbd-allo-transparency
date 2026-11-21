@@ -7,12 +7,12 @@
 // asks the node about what is new.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { decodeEventLog, decodeFunctionResult, encodeFunctionData, pad } from 'viem';
+import { decodeAbiParameters, decodeEventLog, decodeFunctionResult, encodeFunctionData, pad, parseAbiParameters } from 'viem';
 import { ABI, GRANT_SOURCES, MAINNET, TOPIC, VBD_CONTRACTS } from './abi.mjs';
 import { classifyInflow, classifyOutflow, poolHoldsB3tr, receiptPoolEvents } from './classify.mjs';
 import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
-import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
+import { emptyPayouts, foldPayouts, reviewedNetworkStats, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderConfirmed, funderEvidence, funderLinks } from './funders.mjs';
 import { flowOf, forwardLinks } from './forwards.mjs';
@@ -930,6 +930,45 @@ async function main() {
     await saveCache('excludeof', Object.fromEntries(Object.entries(excludeOf).map(([k, v]) => [k, [...v]])));
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
     users.sweeps = sweepInfo;
+    // Hand-reviewed networks: what they were paid, and how they voted, so the
+    // page proves it from the data alone (Vinny, 2026-11-21).
+    if (personOf && LINKS_V2_PUBLIC && REVIEWED_LINKS.length) {
+      try {
+        const nets = reviewedNetworkStats(payoutCache, best.timestamp, personOf, REVIEWED_LINKS);
+        const fromBlock = Math.max(0, best.number - 90 * 8640);
+        const voteParams = parseAbiParameters('bytes32[] appsIds, uint256[] voteWeights');
+        for (const n of nets) {
+          const voters = [...new Set([...n.members, ...n.wallets.map((w) => w.toLowerCase())])];
+          const byApp = new Map();
+          const rounds = new Set();
+          const voted = new Set();
+          let failed = 0;
+          await mapLimit(voters, 6, async (v) => {
+            try {
+              const ls = await thor.logs([{ address: MAINNET.xAllocationVoting, topic0: TOPIC.allocationVoteCast, topic1: '0x' + '0'.repeat(24) + v.slice(2) }], fromBlock, best.number);
+              for (const l of ls) {
+                const [ids, ws] = decodeAbiParameters(voteParams, l.data);
+                voted.add(v);
+                rounds.add(Number(BigInt(l.topics[2])));
+                ids.forEach((id, i) => byApp.set(id.toLowerCase(), (byApp.get(id.toLowerCase()) ?? 0) + Number(ws[i] / 10n ** 15n) / 1000));
+              }
+            } catch {
+              failed++;
+            }
+          });
+          n.votes90 = {
+            voters: voted.size,
+            rounds: [...rounds].sort((a, b) => a - b),
+            vot3ByApp: Object.fromEntries([...byApp.entries()].sort((a, b) => b[1] - a[1]).map(([k, w]) => [k, Math.round(w)])),
+            ...(failed ? { lookupsFailed: failed } : {}),
+          };
+        }
+        users.reviewedNetworks = nets;
+        log(`reviewed networks: ${nets.map((n) => `${n.rewardWallets90} wallets, ${n.b3tr90} B3TR, ${n.votes90.voters} voters`).join(' · ')}`);
+      } catch (e) {
+        log(`reviewed networks FAILED (skipped): ${e?.message ?? e}`);
+      }
+    }
     // Sanity check on linking: size of the biggest merged groups among
     // recent reward wallets. A giant group would mean chained false links.
     if (personOf) {

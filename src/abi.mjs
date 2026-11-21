@@ -20,6 +20,7 @@ export const MAINNET = {
   b3trMultiSig: '0x4Dd13fcb7b4f7DC19048ce0d23aAEbbDB3f3a1d9',
   // VeBetter Passport (proxy): where wallets are linked to one person.
   veBetterPassport: '0x35a267671d8EDD607B2056A9a13E7ba7CF53c8b3',
+  xAllocationVoting: '0x89A00Bb0947a30FF95BEeF77a66AEdE3842Fe5B7',
 };
 
 /**
@@ -85,6 +86,8 @@ export const TOPIC = {
   appEndorsedOld: toEventSelector('AppEndorsed(bytes32,uint256,bool)'),
   appEndorsedNew: toEventSelector('AppEndorsed(bytes32,uint256,address,uint256)'),
   transfer: toEventSelector('Transfer(address,address,uint256)'),
+  // XAllocationVoting: voter and round are indexed; app ids and weights in data.
+  allocationVoteCast: toEventSelector('AllocationVoteCast(address,uint256,bytes32[],uint256[])'),
   swapV2: toEventSelector('Swap(address,uint256,uint256,uint256,uint256,address)'),
   mintV2: toEventSelector('Mint(address,uint256,uint256)'),
   sync: toEventSelector('Sync(uint112,uint112)'),

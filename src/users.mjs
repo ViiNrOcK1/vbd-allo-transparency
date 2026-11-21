@@ -55,18 +55,36 @@ export function userStats(c, nowTs, excludeOf = {}, personOf = null) {
   };
   const ppl30 = new Set();
   const ppl90 = new Set();
+  // Network size: how many reward wallets (any app, 90 days) each person has.
+  // B3TR paid to a wallet whose person has 2+ wallets went to a linked
+  // multi-wallet network (Vinny, 2026-11-21: show it, so the data proves it).
+  const netSize = new Map();
+  if (personOf) {
+    const seen = new Set();
+    for (const [at, , r] of c.rows) {
+      const age = nowTs - at;
+      if (age > WINDOW_DAYS * DAY || age < 0 || seen.has(r)) continue;
+      seen.add(r);
+      const p = person(r);
+      netSize.set(p, (netSize.get(p) ?? 0) + 1);
+    }
+  }
   for (const [at, a, r, amt] of c.rows) {
     const age = nowTs - at;
     if (age > WINDOW_DAYS * DAY || age < 0) continue;
     const id = c.apps[a];
     if (excludeOf[id]?.has(c.receivers[r])) continue;
     let s = per.get(id);
-    if (!s) per.set(id, (s = { u30: new Set(), u90: new Set(), p30: new Set(), p90: new Set(), payouts30: 0, payouts90: 0, b3tr90: 0, byReceiver: new Map() }));
+    if (!s) per.set(id, (s = { u30: new Set(), u90: new Set(), p30: new Set(), p90: new Set(), payouts30: 0, payouts90: 0, b3tr90: 0, toNetworks90: 0, networkWallets90: new Set(), byReceiver: new Map() }));
     s.u90.add(r);
     s.p90.add(person(r));
     ppl90.add(person(r));
     s.payouts90++;
     s.b3tr90 += amt;
+    if ((netSize.get(person(r)) ?? 1) >= 2) {
+      s.toNetworks90 += amt;
+      s.networkWallets90.add(r);
+    }
     s.byReceiver.set(r, (s.byReceiver.get(r) ?? 0) + amt);
     eco90.add(r);
     if (age <= 30 * DAY) {
@@ -94,9 +112,41 @@ export function userStats(c, nowTs, excludeOf = {}, personOf = null) {
       payouts30: s.payouts30,
       payouts90: s.payouts90,
       b3tr90: Math.round(s.b3tr90),
+      ...(personOf ? { toNetworks90: Math.round(s.toNetworks90), networkWallets90: s.networkWallets90.size } : {}),
       topReceiver90: ranked[0] ? { address: c.receivers[ranked[0][0]], b3tr: Math.round(ranked[0][1]), sharePct: share(1) } : null,
       top5SharePct90: share(5),
     };
   }
   return { apps, ecosystem: { users30: eco30.size, users90: eco90.size, people30: ppl30.size, people90: ppl90.size }, peopleLinked: Boolean(personOf) };
+}
+
+/**
+ * Totals for each hand-reviewed network (reviewed.mjs): every reward wallet
+ * of the same person in the last 90 days, the B3TR each app paid them, and
+ * the wallets themselves (for the vote lookup and for readers to check).
+ */
+export function reviewedNetworkStats(c, nowTs, personOf, entries) {
+  const out = [];
+  for (const e of entries) {
+    const p = personOf(e.wallets[0].toLowerCase());
+    const members = new Set();
+    const byApp = new Map();
+    let b3tr = 0;
+    for (const [at, a, r, amt] of c.rows) {
+      const age = nowTs - at;
+      if (age > WINDOW_DAYS * DAY || age < 0) continue;
+      if (personOf(c.receivers[r]) !== p) continue;
+      members.add(c.receivers[r]);
+      byApp.set(c.apps[a], (byApp.get(c.apps[a]) ?? 0) + amt);
+      b3tr += amt;
+    }
+    out.push({
+      ...e,
+      rewardWallets90: members.size,
+      b3tr90: Math.round(b3tr),
+      byApp90: Object.fromEntries([...byApp.entries()].sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, Math.round(v)])),
+      members: [...members].sort(),
+    });
+  }
+  return out;
 }

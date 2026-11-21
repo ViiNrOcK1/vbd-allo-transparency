@@ -442,3 +442,18 @@ describe('rewards to own team and endorsers are not user rewards', () => {
     expect(userStats(c, now, { '0xaa': new Set([W1.toLowerCase()]) }).apps['0xaa'].users30).toBe(1);
   });
 });
+
+import { reviewedNetworkStats as rns, userStats as us2 } from '../src/users.mjs';
+describe('B3TR paid to linked networks', () => {
+  const now = 10_000_000;
+  const c = { apps: ['app1'], receivers: ['a', 'b', 'c'], rows: [[now - 10, 0, 0, 100], [now - 10, 0, 1, 50], [now - 10, 0, 2, 7]] };
+  const personOf = (w) => (w === 'b' ? 'a' : w);
+  it('counts rewards to wallets whose person has 2+ wallets', () => {
+    const u = us2(c, now, {}, personOf);
+    expect(u.apps.app1).toMatchObject({ b3tr90: 157, toNetworks90: 150, networkWallets90: 2 });
+  });
+  it('totals a reviewed network across its wallets', () => {
+    const [r] = rns(c, now, personOf, [{ wallets: ['a', 'b'], reviewedBy: 'x' }]);
+    expect(r).toMatchObject({ rewardWallets90: 2, b3tr90: 150, byApp90: { app1: 150 }, members: ['a', 'b'] });
+  });
+});
