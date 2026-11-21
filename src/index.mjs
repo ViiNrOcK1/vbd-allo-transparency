@@ -17,6 +17,7 @@ import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderConfirmed, funderEvidence, funderLinks } from './funders.mjs';
 import { flowOf, forwardLinks } from './forwards.mjs';
 import { KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
+import { REVIEWED_LINKS, reviewedPairs } from './reviewed.mjs';
 const SERVICE_HUB_TX = 1000;
 // Second-generation linking (Morb's review, 2026-11-21): a shared funder
 // needs a second sign, and collector networks are followed 1–2 hops. Off
@@ -853,7 +854,7 @@ async function main() {
         log(`networks v2 FAILED (skipped): ${e?.message ?? e}`);
       }
       const personOfV1 = personOf;
-      const personOfV2 = personOfFactory([...passportPairs, ...sw.pairs, ...(fund2?.pairs ?? fund?.pairs ?? []), ...net.pairs]);
+      const personOfV2 = personOfFactory([...passportPairs, ...sw.pairs, ...(fund2?.pairs ?? fund?.pairs ?? []), ...net.pairs, ...reviewedPairs()]);
       if (LINKS_V2_PUBLIC) personOf = personOfV2;
       linksV2 = { personOfV1, personOfV2 };
       const priceLike = priceLikeCollectors(sc, sw.groups.map((g) => g.dest), best.timestamp - 90 * 86_400);
@@ -910,6 +911,7 @@ async function main() {
         tooBig: sw.tooBig.length,
         funders: fund ? { ...fund, pairs: undefined, groupList: undefined } : null,
         networks: LINKS_V2_PUBLIC ? { forwardingLinks: net.links.length, wallets: net.nodes } : null,
+        reviewedLinks: LINKS_V2_PUBLIC ? REVIEWED_LINKS.length : 0,
       };
       sweepInfo.linksSkippedByCap = personOf.skipped ?? 0;
       log(`links skipped by the 5,000-address group cap: ${sweepInfo.linksSkippedByCap}`);
