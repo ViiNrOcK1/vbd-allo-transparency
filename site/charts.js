@@ -435,9 +435,10 @@ function networksChart(el, data, state = { all: false }, repaint = () => {}) {
               const apps = Object.entries(n.byApp90 ?? {}).map(([id, b]) => `${esc(nameOf.get(id) ?? id.slice(0, 10))} ${Math.round(b).toLocaleString()}`);
               const v = n.votes90;
               const votes = v && v.voters
-                ? `${v.voters} of these wallets voted (round${v.rounds.length > 1 ? `s ${v.rounds[0]}–${v.rounds.at(-1)}` : ` ${v.rounds[0]}`}): ${Object.entries(v.vot3ByApp)
-                    .map(([id, w]) => `${Math.round(w).toLocaleString()} VOT3 for ${esc(nameOf.get(id) ?? id.slice(0, 10))}`)
-                    .join(', ')}.`
+                ? `${v.voters} of these wallets voted in ${v.rounds.length} round${v.rounds.length > 1 ? `s (${v.rounds[0]}–${v.rounds.at(-1)})` : ` (${v.rounds[0]})`}. Vote weight per round, on average: ${Object.entries(v.vot3ByApp)
+                    .slice(0, 8)
+                    .map(([id, w]) => `${Math.round(w / v.rounds.length).toLocaleString()} VOT3 for ${esc(nameOf.get(id) ?? id.slice(0, 10))}`)
+                    .join(', ')}${Object.keys(v.vot3ByApp).length > 8 ? `, and ${Object.keys(v.vot3ByApp).length - 8} more apps` : ''}.`
                 : 'No votes from these wallets in the last 90 days.';
               return `<div class="rv">
           <p><strong>${n.rewardWallets90.toLocaleString()} reward wallets · ${n.b3tr90.toLocaleString()} B3TR in 90 days</strong> (${apps.join(' · ') || '—'})</p>
