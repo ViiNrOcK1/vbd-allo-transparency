@@ -5,7 +5,7 @@
 // one or two hops further:
 //
 //   - a collector (or a wallet a collector forwards to) that passed on at
-//     least MIN_SHARE of the B3TR + VOT3 it received in the window to the
+//     least MIN_SHARE (60%) of the B3TR + VOT3 it received in the window to the
 //     same next wallet is linked to that next wallet. Collectors that end at
 //     the same next wallet become one person. An exchange deposit address is
 //     unique to one customer, so it counts as a next wallet; the exchange's
@@ -20,7 +20,9 @@
 // Each hop needs a majority of the money, so a farmer's collector that pays
 // a shop once does not merge the farm with the shop.
 
-export const MIN_SHARE = 0.5;
+// 0.6, not 0.5 (audit 2026-11-21): three collectors each sent exactly half
+// to one wallet, which reads as a revenue split, not one owner.
+export const MIN_SHARE = 0.6;
 export const MAX_SOURCES = 25;
 export const MIN_AMOUNT = 1; // B3TR; dust moves are not forwarding
 

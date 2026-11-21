@@ -20,8 +20,9 @@ import { KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
 const SERVICE_HUB_TX = 1000;
 // Second-generation linking (Morb's review, 2026-11-21): a shared funder
 // needs a second sign, and collector networks are followed 1–2 hops. Off
-// until Vinny has seen the audit; until then it is computed and logged only.
-const LINKS_V2_PUBLIC = process.env.LINKS_V2_PUBLIC === '1';
+// Public since 2026-11-21 (Vinny: "go", after the audit matched Morb on 5 of
+// 6 funder groups); LINKS_V2_PUBLIC=0 shows the old rules for comparison.
+const LINKS_V2_PUBLIC = process.env.LINKS_V2_PUBLIC !== '0';
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -715,6 +716,9 @@ async function main() {
         const fl2 = funderLinks(fc, [...recent], excluded, { isService, confirm });
         fund2 = {
           pairs: fl2.pairs,
+          confirmedGroups: fl2.groups.length,
+          confirmedWallets: fl2.groups.reduce((t, g) => t + g.wallets.length, 0),
+          unconfirmedGroups: fl2.unconfirmed.length,
           evidence: [...evidence.entries()].map(([funder, ev]) => ({ funder, ...ev, topApp: payoutCache.apps[ev.topApp] ?? null, confirmed: funderConfirmed(ev) })),
         };
         log(`funders v2: ${fl2.groups.length} groups confirmed (${fl2.groups.reduce((t, g) => t + g.wallets.length, 0)} wallets), ${fl2.unconfirmed.length} shared funders without a second sign (${fl2.unconfirmed.reduce((t, g) => t + g.wallets.length, 0)} wallets) not linked`);
@@ -731,6 +735,11 @@ async function main() {
           pairs: fl.pairs,
           groupList: fl.groups,
         };
+        if (LINKS_V2_PUBLIC && fund2) {
+          fund.groups = fund2.confirmedGroups;
+          fund.walletsInGroups = fund2.confirmedWallets;
+          fund.unconfirmedGroups = fund2.unconfirmedGroups;
+        }
         log(`funders: ${done} new wallets checked (${known} of ${recent.size}), ${fund.groups} groups, ${fund.walletsInGroups} wallets, ${fl.tooBig.length} service-sized funders skipped`);
       } catch (e) {
         log(`funders FAILED (skipped): ${e?.message ?? e}`);
@@ -763,7 +772,10 @@ async function main() {
         const flows = new Map();
         let frontier = [...nodes];
         let flowErr = 0;
-        const bad = (a) => excluded(a) || busyHub(a);
+        // Price-list wallets (many people paying the same round amount) are
+        // shops, not the next wallet of one farmer.
+        const priceList = new Set(priceLikeCollectors(sc, [...new Set(sc.addrs)], since90).map((p) => p.dest));
+        const bad = (a) => excluded(a) || busyHub(a) || priceList.has(a);
         let fl = { pairs: [], links: [], skipped: [] };
         for (let hop = 0; hop <= 2 && frontier.length; hop++) {
           frontier = frontier.slice(0, 600);
@@ -897,6 +909,7 @@ async function main() {
         largestGroup: sw.groups[0]?.wallets.length ?? 0,
         tooBig: sw.tooBig.length,
         funders: fund ? { ...fund, pairs: undefined, groupList: undefined } : null,
+        networks: LINKS_V2_PUBLIC ? { forwardingLinks: net.links.length, wallets: net.nodes } : null,
       };
       sweepInfo.linksSkippedByCap = personOf.skipped ?? 0;
       log(`links skipped by the 5,000-address group cap: ${sweepInfo.linksSkippedByCap}`);

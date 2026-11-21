@@ -337,7 +337,7 @@ function usersChart(el, data, state = { all: false }, repaint = () => {}) {
         </div>`,
       )
       .join('')}</div>
-    <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets count as one person when they’re linked in VeBetterDAO’s Passport, when several of them sent most of their rewards to the same wallet, or when their first VET/VTHO came from the same wallet (the usual farm patterns).' : ''}${(() => {
+    <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets count as one person when they’re linked in VeBetterDAO’s Passport, when several of them sent most of their rewards to the same wallet, when their first VET/VTHO came from the same wallet and they were set up as a batch for the same app or sent rewards back to it, or when collector wallets passed most of their money on to the same wallet (the usual farm patterns). App and shop payment wallets (e.g. Mugshot subscriptions) and exchanges never link anyone.' : ''}${(() => {
       const sw = data.users.sweeps;
       if (!sw) return '';
       const f = sw.funders;
