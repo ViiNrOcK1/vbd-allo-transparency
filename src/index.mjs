@@ -587,7 +587,8 @@ async function main() {
         return vet + vtho + b3tr;
       }
       const ZERO_A = '0x' + '0'.repeat(40);
-      const excluded = (a) => a === ZERO_A || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
+      const DEAD = '0x000000000000000000000000000000000000dead';
+      const excluded = (a) => a === ZERO_A || a === DEAD || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
       // Shared wallets with service-level activity (audit: 'Thunder Legacy',
       // 42,932 transactions since 2018) are services, not collectors.
       const hubAct = await loadCache('hubactivity3'); // addr → { day, n }
