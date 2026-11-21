@@ -4,6 +4,11 @@
 // exchange account. Every entry says who reviewed it, when, and the on-chain
 // evidence, so anyone can check it. A link means "one operator", nothing
 // more; entries are added only after the reviewer confirms them.
+//
+// DISCLAIMER: these are estimates from public on-chain data and can be
+// wrong. Entries are corrected or removed as new evidence comes in, to keep
+// the data as accurate and precise as possible. Spot a mistake? Tell
+// B3TR Beach and it will be checked.
 export const REVIEWED_LINKS = [
   {
     wallets: ['0x5ea9700efcfded17b7521186efc42e830501cb77', '0x38d3d4b247727d3d1e28e1a9dc54f2937d61505d'],
