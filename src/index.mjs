@@ -14,8 +14,14 @@ import { pickCurrentRound, summarize } from './aggregate.mjs';
 import { createThor, mapLimit } from './thor.mjs';
 import { emptyPayouts, foldPayouts, userStats, WINDOW_DAYS } from './users.mjs';
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
-import { BUSY_CAP, busyLimit, earliestFunding, funderLinks } from './funders.mjs';
+import { BUSY_CAP, busyLimit, earliestFunding, funderConfirmed, funderEvidence, funderLinks } from './funders.mjs';
+import { flowOf, forwardLinks } from './forwards.mjs';
+import { KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
 const SERVICE_HUB_TX = 1000;
+// Second-generation linking (Morb's review, 2026-11-21): a shared funder
+// needs a second sign, and collector networks are followed 1–2 hops. Off
+// until Vinny has seen the audit; until then it is computed and logged only.
+const LINKS_V2_PUBLIC = process.env.LINKS_V2_PUBLIC === '1';
 import { candidateDestinations, emptySweeps, foldSweeps, KEEP_DAYS as SWEEP_KEEP_DAYS, sweepLinks } from './sweeps.mjs';
 import { coingeckoDaily, dailyB3trVet, dayOf, fetchVetUsd, foldSyncs, makePriceAt, seriesLookup } from './prices.mjs';
 
@@ -488,6 +494,7 @@ async function main() {
 
   // Wallets one person linked together through VeBetter Passport.
   let personOf = null;
+  let linksV2 = null;
   let passportPairs = [];
   try {
     const cached = await loadCache('passportlinks');
@@ -588,7 +595,7 @@ async function main() {
       }
       const ZERO_A = '0x' + '0'.repeat(40);
       const DEAD = '0x000000000000000000000000000000000000dead';
-      const excluded = (a) => a === ZERO_A || a === DEAD || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
+      const excluded = (a) => a === ZERO_A || a === DEAD || KNOWN_SERVICE_WALLETS.has(a) || teamWallets.has(a) || vbd.has(a) || GRANT_SOURCES.has(a) || Boolean(contracts[a]) || a === MAINNET.x2EarnRewardsPool.toLowerCase();
       // Shared wallets with service-level activity (audit: 'Thunder Legacy',
       // 42,932 transactions since 2018) are services, not collectors.
       const hubAct = await loadCache('hubactivity3'); // addr → { day, n }
@@ -616,6 +623,8 @@ async function main() {
       // Never changes, so it's cached forever; up to 6,000 new wallets per
       // run, so the first few runs fill it in.
       let fund = null;
+      let fund2 = null;
+      let topAppOf = () => undefined;
       try {
         const fc = await loadCache('funders'); // wallet → funder | null
         const VTHO = '0x0000000000000000000000000000456E65726779';
@@ -667,6 +676,48 @@ async function main() {
         if (busyErr) log(`funders: ${busyErr} activity lookups failed (treated as services); first error: ${firstErr}`);
         const isService = (f) => !(busy[f]?.day === today) || busy[f].n > busyLimit(counts.get(f) ?? 0);
         const fl = funderLinks(fc, [...recent], excluded, { isService });
+        // v2: a shared funder needs a second sign (funders.mjs). First-funding
+        // times for wallets in candidate groups ('fundtime', never changes).
+        const ft = await loadCache('fundtime'); // wallet → unix ts | null
+        const candW = [...fl.groups, ...fl.unconfirmed].flatMap((g) => g.wallets).filter((w) => !(w in ft));
+        await mapLimit(candW.slice(0, 8000), 10, async (w) => {
+          try {
+            const [vet, vthoLog] = await Promise.all([
+              thor.firstVetIn(w, best.number),
+              thor.firstLog({ address: VTHO, topic0: TOPIC.transfer, topic2: '0x' + '0'.repeat(24) + w.slice(2) }, best.number),
+            ]);
+            const vtho = vthoLog ? { from: '0x' + vthoLog.topics[1].slice(26), block: vthoLog.meta.blockNumber, at: vthoLog.meta.blockTimestamp } : null;
+            ft[w] = earliestFunding(vet, vtho)?.at ?? null;
+          } catch {
+            /* next run */
+          }
+        });
+        await saveCache('fundtime', ft);
+        const appTotals = new Map(); // wallet → Map(app → b3tr), 90 days
+        for (const [at, ai, r, amt] of payoutCache.rows) {
+          if (at < since) continue;
+          const w = payoutCache.receivers[r];
+          const m = appTotals.get(w) ?? appTotals.set(w, new Map()).get(w);
+          m.set(ai, (m.get(ai) ?? 0) + amt);
+        }
+        topAppOf = (w) => {
+          const m = appTotals.get(w);
+          return m ? [...m.entries()].sort((a, b) => b[1] - a[1])[0][0] : undefined;
+        };
+        const sentPair = new Map();
+        for (const [at, f, d, amt] of sc.rows) if (at >= since) sentPair.set(`${sc.addrs[f]}|${sc.addrs[d]}`, (sentPair.get(`${sc.addrs[f]}|${sc.addrs[d]}`) ?? 0) + amt);
+        const evidence = new Map();
+        const confirm = (funder, ws) => {
+          const ev = funderEvidence(ws, { fundedAt: (w) => ft[w] ?? undefined, topAppOf, sentBack: (w) => sentPair.get(`${w}|${funder}`) ?? 0 });
+          evidence.set(funder, ev);
+          return funderConfirmed(ev);
+        };
+        const fl2 = funderLinks(fc, [...recent], excluded, { isService, confirm });
+        fund2 = {
+          pairs: fl2.pairs,
+          evidence: [...evidence.entries()].map(([funder, ev]) => ({ funder, ...ev, topApp: payoutCache.apps[ev.topApp] ?? null, confirmed: funderConfirmed(ev) })),
+        };
+        log(`funders v2: ${fl2.groups.length} groups confirmed (${fl2.groups.reduce((t, g) => t + g.wallets.length, 0)} wallets), ${fl2.unconfirmed.length} shared funders without a second sign (${fl2.unconfirmed.reduce((t, g) => t + g.wallets.length, 0)} wallets) not linked`);
         const busyCount = funderCands.filter((f) => counts.get(f) >= 2 && isService(f)).length;
         log(`funders: ${busyCount} busy funders (exchanges/services) never link`);
         const known = [...recent].filter((w) => w in fc).length;
@@ -688,9 +739,121 @@ async function main() {
       const caughtUp = sc.lastBlock >= best.number;
       const coveredDays = Math.max(0, Math.min(90, Math.floor((sc.lastBlock - (best.number - 90 * 8640)) / 8640)));
       personOf = personOfFactory([...passportPairs, ...sw.pairs, ...(fund?.pairs ?? [])]);
+      // ── v2: collector networks (forwards.mjs) + collectors' own funders ──
+      let net = { pairs: [], links: [], funderGroups: [], nodes: 0 };
+      try {
+        const since90 = best.timestamp - 90 * 86_400;
+        const fromBlock = Math.max(0, best.number - 90 * 8640);
+        const flowCache = await loadCache('flows1'); // addr → { day, in, out: [[to, amt]], senders: [addr] }
+        const today = Math.floor(best.timestamp / 86_400);
+        const receivers = new Set(payoutCache.receivers);
+        const pad = (a) => '0x' + '0'.repeat(24) + a.slice(2);
+        const ZERO_ADDR = '0x' + '0'.repeat(40);
+        async function transfersOf(a) {
+          const crit = (token) => [
+            { address: token, topic0: TOPIC.transfer, topic1: pad(a) },
+            { address: token, topic0: TOPIC.transfer, topic2: pad(a) },
+          ];
+          const ls = await thor.logs([...crit(MAINNET.b3tr), ...crit(MAINNET.vot3)], fromBlock, best.number);
+          return ls
+            .map((l) => ({ from: '0x' + l.topics[1].slice(26), to: '0x' + l.topics[2].slice(26), amount: Number(BigInt(l.data) / 10n ** 15n) / 1000 }))
+            .filter((t) => t.from !== ZERO_ADDR && t.to !== ZERO_ADDR);
+        }
+        const nodes = new Set(sw.groups.map((g) => g.dest));
+        const flows = new Map();
+        let frontier = [...nodes];
+        let flowErr = 0;
+        const bad = (a) => excluded(a) || busyHub(a);
+        let fl = { pairs: [], links: [], skipped: [] };
+        for (let hop = 0; hop <= 2 && frontier.length; hop++) {
+          frontier = frontier.slice(0, 600);
+          await mapLimit(frontier.filter((a) => flowCache[a]?.day !== today), 6, async (a) => {
+            try {
+              const ts = await transfersOf(a);
+              const f = flowOf(a, ts);
+              const senders = [...new Set(ts.filter((t) => t.to.toLowerCase() === a).map((t) => t.from.toLowerCase()))];
+              flowCache[a] = { day: today, in: f.in, out: [...f.out.entries()], senders: senders.slice(0, 2000) };
+            } catch {
+              flowErr++;
+            }
+          });
+          for (const a of frontier) {
+            const c = flowCache[a];
+            if (!c) continue;
+            const outsiders = c.senders.filter((x) => !receivers.has(x) && !nodes.has(x)).length;
+            flows.set(a, { in: c.in, out: new Map(c.out), sources: outsiders });
+          }
+          if (hop === 2) break;
+          // Next hop: wallets these nodes forward a majority to. Check them
+          // for contract code and service-level activity before following.
+          const pre = forwardLinks(flows, excluded);
+          const next = [...new Set(pre.links.map((l) => l.to))].filter((a) => !nodes.has(a));
+          await mapLimit(next, 10, (a) => isContract(a));
+          await mapLimit(next.filter((a) => !contracts[a] && hubAct[a]?.day !== week), 6, async (a) => {
+            try {
+              hubAct[a] = { day: week, n: await activityOut(a) };
+            } catch {
+              /* unknown: not followed */
+            }
+          });
+          frontier = next.filter((a) => !bad(a) && hubAct[a]?.day === week);
+          for (const a of frontier) nodes.add(a);
+        }
+        await saveCache('flows1', flowCache);
+        await saveCache('hubactivity3', hubAct);
+        await saveCache('contracts', contracts);
+        // The next wallet's own outsiders count is only known once it's a node.
+        fl = forwardLinks(flows, (a) => bad(a) || !(hubAct[a]?.day === week || nodes.has(a)));
+        // Collectors' own first funders: two collectors funded by the same
+        // plain, quiet wallet are one operator.
+        const fc2 = await loadCache('funders');
+        const todo = [...nodes].filter((a) => !(a in fc2));
+        await mapLimit(todo, 10, async (a) => {
+          try {
+            const [vet, vthoLog] = await Promise.all([
+              thor.firstVetIn(a, best.number),
+              thor.firstLog({ address: '0x0000000000000000000000000000456E65726779', topic0: TOPIC.transfer, topic2: pad(a) }, best.number),
+            ]);
+            const vtho = vthoLog ? { from: ('0x' + vthoLog.topics[1].slice(26)).toLowerCase(), block: vthoLog.meta.blockNumber } : null;
+            fc2[a] = earliestFunding(vet, vtho)?.from ?? null;
+          } catch {
+            /* next run */
+          }
+        });
+        await saveCache('funders', fc2);
+        const nCount = new Map();
+        for (const a of nodes) if (fc2[a]) nCount.set(fc2[a], (nCount.get(fc2[a]) ?? 0) + 1);
+        const nf = [...nCount.entries()].filter(([f, n]) => n >= 2 && !excluded(f)).map(([f]) => f);
+        await mapLimit(nf, 10, (f) => isContract(f));
+        await mapLimit(nf.filter((f) => !contracts[f] && hubAct[f]?.day !== week), 6, async (f) => {
+          try {
+            hubAct[f] = { day: week, n: await activityOut(f) };
+          } catch {
+            /* unknown: no link */
+          }
+        });
+        await saveCache('hubactivity3', hubAct);
+        const quiet = (f) => !excluded(f) && hubAct[f]?.day === week && hubAct[f].n <= busyLimit(nCount.get(f));
+        const cf = funderLinks(fc2, [...nodes], (f) => !quiet(f), { maxFunded: 50 });
+        net = { pairs: [...fl.pairs, ...cf.pairs], links: fl.links, funderGroups: cf.groups, nodes: nodes.size, skipped: fl.skipped.length };
+        log(`networks v2: ${nodes.size} collector-network wallets, ${fl.links.length} forwarding links (${fl.skipped.length} to services skipped), ${cf.groups.length} shared collector funders${flowErr ? `, ${flowErr} lookups failed` : ''}`);
+      } catch (e) {
+        log(`networks v2 FAILED (skipped): ${e?.message ?? e}`);
+      }
+      const personOfV1 = personOf;
+      const personOfV2 = personOfFactory([...passportPairs, ...sw.pairs, ...(fund2?.pairs ?? fund?.pairs ?? []), ...net.pairs]);
+      if (LINKS_V2_PUBLIC) personOf = personOfV2;
+      linksV2 = { personOfV1, personOfV2 };
+      const priceLike = priceLikeCollectors(sc, sw.groups.map((g) => g.dest), best.timestamp - 90 * 86_400);
+      log(`price-list collectors to review (not excluded automatically): ${priceLike.length}`);
       // For scripts/audit.mjs only. The Actions cache is private to this
       // repo's workflows; the audit encrypts anything with addresses.
-      await saveCache('auditgroups', { sweeps: sw.groups, funders: fund?.groupList ?? [], passport: passportPairs });
+      await saveCache('auditgroups', {
+        sweeps: sw.groups,
+        funders: fund?.groupList ?? [],
+        passport: passportPairs,
+        v2: { funderEvidence: fund2?.evidence ?? [], funderPairs: fund2?.pairs ?? [], forwards: net.links, collectorFunders: net.funderGroups, priceLike, public: LINKS_V2_PUBLIC },
+      });
       // What the biggest merged groups are made of (counts only): one huge
       // sweep hub is strong evidence of a farm; a long chain of small hubs
       // would be weaker.
@@ -777,6 +940,17 @@ async function main() {
       .slice(0, 20)
       .map(([id, u]) => `${nameOf.get(id) ?? id.slice(0, 10)} ${u.users30}→${u.people30} (−${u.users30 ? Math.round((1 - u.people30 / u.users30) * 100) : 0}%)`);
     log(`wallets→people, 30d: ${top.join(' · ')}`);
+    if (linksV2) {
+      // The other rule set, for comparison (counts only).
+      const other = userStats(payoutCache, best.timestamp, excludeOf, LINKS_V2_PUBLIC ? linksV2.personOfV1 : linksV2.personOfV2);
+      const label = LINKS_V2_PUBLIC ? 'v1 (old rules)' : 'v2 (not public yet)';
+      const top2 = Object.entries(other.apps)
+        .sort((x, y) => y[1].users30 - x[1].users30)
+        .slice(0, 20)
+        .map(([id, u]) => `${nameOf.get(id) ?? id.slice(0, 10)} ${u.users30}→${u.people30} (−${u.users30 ? Math.round((1 - u.people30 / u.users30) * 100) : 0}%)`);
+      log(`wallets→people ${label}, 30d: ${top2.join(' · ')}`);
+      log(`${label}: ecosystem 30d ${other.ecosystem.users30} wallets / ${other.ecosystem.people30} people, 90d ${other.ecosystem.users90} / ${other.ecosystem.people90}`);
+    }
     log(`users (excl. own team + endorsers): ecosystem 30d ${users.ecosystem.users30} wallets / ${users.ecosystem.people30} people, 90d ${users.ecosystem.users90} / ${users.ecosystem.people90}`);
   }
 

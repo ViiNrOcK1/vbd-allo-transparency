@@ -162,6 +162,27 @@ const focusGroups = focus
 await mkdir('audit', { recursive: true });
 await writeFile(
   'audit/sample.json',
-  JSON.stringify({ generatedAt: new Date().toISOString(), explorer: 'https://explore.vechain.org/accounts/', sweepSample, funderSample, passportSample, focusApp: focus?.name, focusGroups }, null, 1),
+  JSON.stringify(
+    {
+      generatedAt: new Date().toISOString(),
+      explorer: 'https://explore.vechain.org/accounts/',
+      sweepSample,
+      funderSample,
+      passportSample,
+      focusApp: focus?.name,
+      focusGroups,
+      // v2 rules (Morb's review): every shared funder's evidence, every
+      // forwarding link, collectors' shared funders, price-list collectors.
+      v2: groups.v2
+        ? {
+            ...groups.v2,
+            funderEvidence: groups.v2.funderEvidence.map((e) => ({ ...e, topApp: nameOf.get(e.topApp) ?? e.topApp })),
+            funderPairs: undefined,
+          }
+        : null,
+    },
+    null,
+    1,
+  ),
 );
 console.log(`\nSample written: ${sweepSample.length} sweep groups, ${funderSample.length} funder groups, ${passportSample.length} Passport links (encrypted below).`);

@@ -28,3 +28,36 @@ describe('same funder', () => {
     expect(funderLinks(ff, Object.keys(ff), () => false, { isService: (a) => a === w(100) }).groups).toEqual([]);
   });
 });
+
+import { funderConfirmed, funderEvidence } from '../src/funders.mjs';
+
+describe('a shared funder needs a second sign', () => {
+  const ws = [w(1), w(2), w(3), w(4)];
+  const day = 86_400;
+  it('a batch of wallets funded within a week that earn from the same app links', () => {
+    const ev = funderEvidence(ws, { fundedAt: (x) => 1e9 + Number(x.slice(-1)) * day, topAppOf: () => 'pergram' });
+    expect(ev).toMatchObject({ n: 4, burstShare: 1, topApp: 'pergram', topAppShare: 1, flowBack: 0 });
+    expect(funderConfirmed(ev)).toBe(true);
+  });
+  it('a community gas giver (funded over weeks, many apps, nothing comes back) does not', () => {
+    const apps = { [w(1)]: 'a', [w(2)]: 'b', [w(3)]: 'c', [w(4)]: 'a' };
+    const ev = funderEvidence(ws, { fundedAt: (x) => 1e9 + Number(x.slice(-1)) * 10 * day, topAppOf: (x) => apps[x] });
+    expect(ev.burstShare).toBe(0.25);
+    expect(funderConfirmed(ev)).toBe(false);
+  });
+  it('a burst alone is not enough when the wallets use different apps', () => {
+    const apps = { [w(1)]: 'a', [w(2)]: 'b', [w(3)]: 'c', [w(4)]: 'd' };
+    expect(funderConfirmed(funderEvidence(ws, { fundedAt: () => 1e9, topAppOf: (x) => apps[x] }))).toBe(false);
+  });
+  it('rewards sent back to the funder link, whatever the timing', () => {
+    const ev = funderEvidence(ws, { sentBack: (x) => (x === w(1) || x === w(3) ? 5 : 0) });
+    expect(ev.flowBack).toBe(2);
+    expect(funderConfirmed(ev)).toBe(true);
+  });
+  it('funderLinks reports unconfirmed groups instead of linking them', () => {
+    const ff = { [w(1)]: w(100), [w(2)]: w(100) };
+    const r = funderLinks(ff, Object.keys(ff), () => false, { confirm: () => false });
+    expect(r.groups).toEqual([]);
+    expect(r.unconfirmed).toEqual([{ funder: w(100), wallets: [w(1), w(2)] }]);
+  });
+});
