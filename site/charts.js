@@ -307,16 +307,26 @@ function usersChart(el, data, state = { all: false }, repaint = () => {}) {
     .map((a) => {
       const x = u[a.id.toLowerCase()];
       // People = wallets with Passport-linked ones merged (falls back to wallets).
-      return { a, wallets: x?.users30 ?? 0, users: x?.people30 ?? x?.users30 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null };
+      return { a, wallets: x?.users30 ?? 0, users: x?.people30 ?? x?.users30 ?? 0, wallets90: x?.users90 ?? 0, share: roundTotal && a.current ? (b3(a.current.total) / roundTotal) * 100 : null };
     })
-    // Every app in the filter, including ones with nobody paid this month.
     .sort((x, y) => y.users - x.users || y.wallets - x.wallets || x.a.name.localeCompare(y.a.name));
+  // Every app in the filter still shows up, but the ones that paid nobody in
+  // the last 30 days (ended or inactive apps) are listed in one line below
+  // the chart instead of as rows of zeros (Vinny, 2026-11-21).
+  const idle = rows.filter((r) => r.wallets === 0 && r.users === 0);
+  rows.splice(0, rows.length, ...rows.filter((r) => r.wallets > 0 || r.users > 0));
   const allRows = rows.slice();
   if (!state.all) rows.splice(TOP_N);
-  if (!rows.length) {
+  if (!rows.length && !idle.length) {
     el.hidden = true;
     return;
   }
+  const idleNote = idle.length
+    ? `<p class="fine">${idle.length} app${idle.length === 1 ? '' : 's'} paid nobody in the last 30 days (ended or inactive), so ${idle.length === 1 ? 'it isn’t' : 'they aren’t'} charted: ${idle
+        .sort((x, y) => y.wallets90 - x.wallets90 || x.a.name.localeCompare(y.a.name))
+        .map((r) => `${esc(r.a.name.trim())}${r.wallets90 ? ` (${r.wallets90.toLocaleString()} wallets in 90 days)` : ''}`)
+        .join(', ')}.</p>`
+    : '';
   const eco = data.users.ecosystem ?? {};
   const linked = Boolean(data.users.peopleLinked);
   // Bars are scaled to wallets: the solid part is people, the faded rest is
@@ -337,6 +347,7 @@ function usersChart(el, data, state = { all: false }, repaint = () => {}) {
         </div>`,
       )
       .join('')}</div>
+    ${idleNote}
     <p class="fine">Who got at least one reward from the app in the last 30 days (not all time; its own team wallets and endorsers left out).${linked ? ' Wallets count as one person when they’re linked in VeBetterDAO’s Passport, when several of them sent most of their rewards to the same wallet, when their first VET/VTHO came from the same wallet and they were set up as a batch for the same app or sent rewards back to it, or when collector wallets passed most of their money on to the same wallet (the usual farm patterns). App and shop payment wallets (e.g. Mugshot subscriptions) and exchanges never link anyone. A few links were checked by hand and are listed with their on-chain evidence in <a href="https://github.com/ViiNrOcK1/vbd-allo-transparency/blob/main/src/reviewed.mjs">src/reviewed.mjs</a>. <strong>These links are estimates from public on-chain data and can be wrong.</strong> We correct them as new evidence comes in, so the numbers stay as accurate as we can make them. Spot a mistake? Tell us and we’ll check it.' : ''}${(() => {
       const sw = data.users.sweeps;
       if (!sw) return '';
