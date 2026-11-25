@@ -304,7 +304,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
         largestSales: sales
           .sort((a, b) => (b.value > a.value ? 1 : b.value < a.value ? -1 : 0))
           .slice(0, 5)
-          .map((f) => ({ txId: f.txId, at: f.at ?? null, amount: f.value.toString(), ...(f.via ? { via: f.via } : {}) })),
+          .map((f) => ({ txId: f.txId, at: f.at ?? null, amount: f.value.toString(), ...(f.via ? { via: f.via, hop: f.hop ?? 1 } : {}) })),
         topSenders: [...senders.values()]
           .sort((a, b) => (b.amount > a.amount ? 1 : b.amount < a.amount ? -1 : 0))
           .slice(0, 10)

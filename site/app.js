@@ -147,7 +147,7 @@ function detailHtml(a) {
     .map((v) => `<a class="addr" href="${EXPLORER}${esc(v.address)}" target="_blank" rel="noopener">${esc(short(v.address))}</a> (${fmt(b3(v.counted))})`)
     .join(', ');
   const sales = (a.teamWallet.largestSales ?? [])
-    .map((s) => `<li><a class="addr" href="${TX}${esc(s.txId)}" target="_blank" rel="noopener">${esc(short(s.txId))}</a> · ${fmt(b3(s.amount))} B3TR${s.at ? ` · ${esc(new Date(s.at * 1000).toISOString().slice(0, 10))}` : ''}${s.via ? ` · sold via <a class="addr" href="${EXPLORER}${esc(s.via)}" target="_blank" rel="noopener">${esc(short(s.via))}</a>` : ''}</li>`)
+    .map((s) => `<li><a class="addr" href="${TX}${esc(s.txId)}" target="_blank" rel="noopener">${esc(short(s.txId))}</a> · ${fmt(b3(s.amount))} B3TR${s.at ? ` · ${esc(new Date(s.at * 1000).toISOString().slice(0, 10))}` : ''}${s.via ? ` · sold via <a class="addr" href="${EXPLORER}${esc(s.via)}" target="_blank" rel="noopener">${esc(short(s.via))}</a>${s.hop > 1 ? ` (${s.hop} wallets from the team)` : ''}` : ''}</li>`)
     .join('');
   // Wallets the app collects payments in (subscriptions …): not DAO money,
   // shown apart from the team totals (services.mjs).
@@ -228,7 +228,7 @@ function detailHtml(a) {
       </dl><p class="fine">Each transfer is valued at that day’s B3TR price. “Other wallets” are usually exchanges or payroll — most of it is likely sold to cover costs, but the chain can’t prove where it ended up.</p></div>` : ''}
     ${rxRows ? `<div class="dbox"><h3>Where the wallet’s B3TR came from</h3><dl class="kv">${rxRows}</dl>
       <p class="fine">${grants > 0 ? `<strong>About ${fmt(grants)} B3TR of this was grant / DAO funding</strong>${viaTxt ? `, partly passed on by ${viaTxt}, which received it from VeBetterDAO` : ''}. ` : ''}B3TR is interchangeable, so a sale can’t be tied to one source — “sold %” is measured against everything received.</p></div>` : ''}
-    ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check. “Sold via” means the team first sent the B3TR to another wallet that held little else and swapped it within 30 days. B3TR sent to an exchange and sold there can’t be seen on-chain, so “sold” is still a floor.</p></div>` : ''}
+    ${sales ? `<div class="dbox"><h3>Largest sales</h3><ol class="recips">${sales}</ol><p class="fine">Each is a transaction that swapped B3TR in a pool — open it to check. “Sold via” means the team sent the B3TR to another wallet that had almost no other income, and that wallet (or the next one it passed the B3TR to, followed hop by hop) swapped it within 30 days of receiving it. B3TR sent to an exchange and sold there can’t be seen on-chain, so “sold” is still a floor.</p></div>` : ''}
     ${payBoxes}
     ${recips ? `<div class="dbox"><h3>Largest recipients</h3>
       <p class="fine">The addresses this app’s team wallet sent the most B3TR to, all time, biggest first. The label says what the address is: a B3TR pool (a sale), the app’s own rewards pool, VeBetterDAO, or an <em>other wallet</em> we can’t identify (often an exchange deposit address or payroll, but we don’t assume). Moves between the app’s own wallets aren’t counted. Tap an address to check it on the explorer.</p>

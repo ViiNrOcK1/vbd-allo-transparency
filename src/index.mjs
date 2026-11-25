@@ -17,7 +17,7 @@ import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderConfirmed, funderEvidence, funderLinks } from './funders.mjs';
 import { flowOf, forwardLinks } from './forwards.mjs';
 import { APP_PAYMENT_WALLETS, KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
-import { MIN_B3TR as PASS_MIN, passThroughSales } from './passthrough.mjs';
+import { MIN_B3TR as PASS_MIN, traceLots } from './passthrough.mjs';
 import { REVIEWED_LINKS, reviewedPairs } from './reviewed.mjs';
 const SERVICE_HUB_TX = 1000;
 // Second-generation linking (Morb's review, 2026-11-21): a shared funder
@@ -224,49 +224,63 @@ async function main() {
   });
 
   // ── Team money sold from another wallet (passthrough.mjs) ──
-  // A plain wallet that got ≥1,000 B3TR from a team and swapped it within 30
-  // days, having received (nearly) nothing else: those B3TR count as sold,
-  // with the wallet named as `via`. Busy wallets (exchanges) are skipped.
-  async function applyPassThrough(walletMap, groupFor, label) {
-    const byRecipient = new Map(); // recipient → [{ w, f }]
-    for (const [w, flows] of Object.entries(walletMap)) {
-      for (const f of flows.outflows) {
-        if (f.kind !== 'other_wallet' || f.value < PASS_MIN) continue;
-        (byRecipient.get(f.to) ?? byRecipient.set(f.to, []).get(f.to)).push({ w, f });
+  // Followed hop by hop (Vinny 2026-11-25: "follow all the hops u can"): a
+  // plain wallet that got ≥1,000 B3TR from a team and had (nearly) no other
+  // income is a pass-through; what it swaps within 30 days of receiving it
+  // counts as the team's sale (`via` = the wallet that swapped, `hop` = how
+  // many wallets from the team), and what it moves on is followed further.
+  // Busy wallets (exchanges, services) end the trail. One wallet budget for
+  // the whole run, biggest amounts first. Logs give counts only.
+  const allTeam = new Set([...walletSet, ...APP_PAYMENT_WALLETS.map((p) => p.wallet.toLowerCase())]);
+  const lotCache = new Map();
+  const LOT_BUDGET = Number(process.env.LOT_WALLETS ?? 700);
+  let lotFailed = 0;
+  async function lotFlowsOf(w) {
+    try {
+      const n = await thor.countLogs({ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(w, { size: 32 }) }, 0, best.number, 1000);
+      if (n >= 1000) return null;
+      const r = await scanWallet(w, new Set([w]));
+      return { outflows: r.outflows, inflows: r.inflows };
+    } catch {
+      lotFailed++; // next run
+      return null;
+    }
+  }
+  async function applyPassThrough(walletMap, groups, label) {
+    let found = 0;
+    let deepest = 0;
+    let passCount = 0;
+    let capped = 0;
+    // Big groups first, so the budget goes where the money is.
+    const size = (g) => [...g].reduce((a, w) => a + (walletMap[w]?.outflows ?? []).reduce((x, f) => x + (f.kind === 'other_wallet' ? f.value : 0n), 0n), 0n);
+    const sorted = groups.map((g) => [g, size(g)]).sort((a, b) => (b[1] > a[1] ? 1 : -1));
+    for (const [g] of sorted) {
+      const seeds = new Map();
+      for (const w of g) {
+        for (const f of walletMap[w]?.outflows ?? []) {
+          if (f.kind !== 'other_wallet' || f.value < PASS_MIN || !f.to || f.at == null || allTeam.has(f.to)) continue;
+          (seeds.get(f.to) ?? seeds.set(f.to, []).get(f.to)).push({ ref: { w, f }, value: f.value, at: f.at });
+        }
+      }
+      if (!seeds.size) continue;
+      const { sold, stats } = await traceLots({ seeds, flowsOf: lotFlowsOf, isTeam: (x) => g.has(x), isStop: (x) => allTeam.has(x), cache: lotCache, maxWallets: LOT_BUDGET });
+      deepest = Math.max(deepest, stats.deepestHop);
+      passCount += stats.passThrough;
+      capped += stats.stoppedAtCap;
+      for (const [{ w, f }, parts] of sold) {
+        const list = walletMap[w].outflows;
+        const at = list.indexOf(f);
+        if (at < 0) continue;
+        const soldFlows = parts.map((s) => ({ to: f.to, via: s.via, hop: s.hop, value: s.value, txId: s.txId, at: s.at, saleValue: s.saleValue, kind: 'sold' }));
+        const rest = f.value - parts.reduce((a, s) => a + s.value, 0n);
+        list.splice(at, 1, ...soldFlows, ...(rest > 0n ? [{ ...f, value: rest }] : []));
+        found += soldFlows.length;
       }
     }
-    const recipients = [...byRecipient.keys()].slice(0, 400);
-    let found = 0;
-    let skippedBusy = 0;
-    let failed = 0;
-    await mapLimit(recipients, 4, async (rcpt) => {
-      try {
-        const n = await thor.countLogs({ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(rcpt, { size: 32 }) }, 0, best.number, 1000);
-        if (n >= 1000) {
-          skippedBusy++;
-          return;
-        }
-        const items = byRecipient.get(rcpt);
-        const team = new Set(items.flatMap(({ w }) => [...(groupFor(w) ?? [w])]));
-        const flowsOf = await scanWallet(rcpt, new Set([rcpt]));
-        const res = passThroughSales(items.map(({ f }) => f), flowsOf, team);
-        res.forEach((r, i) => {
-          if (!r.sold.length) return;
-          const { w, f } = items[i];
-          const list = walletMap[w].outflows;
-          const at = list.indexOf(f);
-          const sold = r.sold.map((s) => ({ to: f.to, via: rcpt, value: s.value, txId: s.txId, at: s.at, saleValue: s.saleValue, kind: 'sold' }));
-          const rest = r.rest > 0n ? [{ ...f, value: r.rest }] : [];
-          list.splice(at, 1, ...sold, ...rest);
-          found += sold.length;
-        });
-      } catch {
-        failed++; // next run
-      }
-    });
-    log(`${label}: ${found} sales from another wallet found (${recipients.length} receiving wallets checked, ${skippedBusy} busy ones skipped${failed ? `, ${failed} lookups FAILED` : ''})`);
+    log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${lotCache.size}/${LOT_BUDGET} wallets checked so far${capped ? `, ${capped} not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
   }
-  await applyPassThrough(wallets, (w) => groupOf.get(w), 'team pass-through');
+  const teamGroups = [...new Map([...appWallets.values()].map((ws) => [[...ws].sort().join(','), ws])).values()];
+  await applyPassThrough(wallets, teamGroups, 'team pass-through');
 
   // ── App payment wallets (services.mjs): subscriptions etc. Not DAO money,
   //    so kept apart from the team totals, but what they sell is shown. ──
@@ -281,10 +295,11 @@ async function main() {
       log(`payment wallet ${w}: FAILED ${e?.message ?? e}`);
     }
   });
-  await applyPassThrough(paymentWallets, (w) => {
-    const p = APP_PAYMENT_WALLETS.find((x) => x.wallet.toLowerCase() === w);
-    return new Set([w, ...(appWallets.get(p?.appId.toLowerCase()) ?? [])]);
-  }, 'payment-wallet pass-through');
+  await applyPassThrough(
+    paymentWallets,
+    APP_PAYMENT_WALLETS.map((p) => new Set([p.wallet.toLowerCase(), ...(appWallets.get(p.appId.toLowerCase()) ?? [])])),
+    'payment-wallet pass-through',
+  );
 
   await Promise.all([saveCache('contracts', contracts), saveCache('pools', pools), saveCache('receipts', receipts)]);
 
