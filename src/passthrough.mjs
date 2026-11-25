@@ -39,14 +39,16 @@ export async function traceLots({
   windowDays = WINDOW_DAYS,
   minShare = MIN_TEAM_SHARE,
   minValue = MIN_B3TR,
-  maxWallets = 500,
-  cache = new Map(), // wallet → flows; share it across calls so the budget is global
+  maxDeep = 150, // wallets checked past the first hop, per call (= per app)
+  maxWallets = 5000, // safety cap on the shared cache, all apps together
+  cache = new Map(), // wallet → flows; share it across calls
   concurrency = 4,
 }) {
   const pass = new Set();
   const rejected = new Set();
   const sold = new Map();
   const stats = { passThrough: 0, deepestHop: 0, stoppedAtCap: 0 };
+  let deep = 0;
   const lotTotal = (ls) => ls.reduce((a, l) => a + l.value, 0n);
   let frontier = seeds;
   for (let hop = 1; hop <= maxHops && frontier.size; hop++) {
@@ -54,10 +56,15 @@ export async function traceLots({
     // Biggest amounts first, so the wallet budget goes where the money is.
     const order = [...frontier].filter(([w]) => !isStop(w) && !rejected.has(w)).sort((a, b) => (lotTotal(b[1]) > lotTotal(a[1]) ? 1 : -1));
     const want = [];
+    // Every wallet the team paid directly is always checked (hop 1), so every
+    // app is covered; only the deeper hops have a budget per app.
     for (const [w] of order) {
       if (cache.has(w)) continue;
-      if (cache.size + want.length >= maxWallets) stats.stoppedAtCap++;
-      else want.push(w);
+      if (cache.size + want.length >= maxWallets || (hop > 1 && deep >= maxDeep)) stats.stoppedAtCap++;
+      else {
+        want.push(w);
+        if (hop > 1) deep++;
+      }
     }
     for (let i = 0; i < want.length; i += concurrency) {
       const part = want.slice(i, i + concurrency);

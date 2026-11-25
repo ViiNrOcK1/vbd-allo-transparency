@@ -127,10 +127,13 @@ describe('following team money over several hops', () => {
     expect(total).toBe(B(3000));
   });
 
-  it('stops at the wallet budget and says so', async () => {
-    const net = { '0xa': { inflows: [{ from: '0xteam', value: B(2000), at: 0 }], outflows: [{ kind: 'sold', value: B(2000), at: DAY, txId: 's' }] } };
-    const { sold, stats } = await run(net, [seed('f', '0xa', 2000, 0)], { maxWallets: 0 });
-    expect(sold.size).toBe(0);
+  it('always checks the first hop; the deeper budget stops further hops and says so', async () => {
+    const net = {
+      '0xa': { inflows: [{ from: '0xteam', value: B(4000), at: 0 }], outflows: [{ kind: 'sold', value: B(2000), at: DAY, txId: 's1' }, { kind: 'other_wallet', to: '0xb', value: B(2000), at: DAY, txId: 'm' }] },
+      '0xb': { inflows: [{ from: '0xa', value: B(2000), at: DAY }], outflows: [{ kind: 'sold', value: B(2000), at: 2 * DAY, txId: 's2' }] },
+    };
+    const { sold, stats } = await run(net, [seed('f', '0xa', 4000, 0)], { maxDeep: 0 });
+    expect(sold.get('f').map((s) => s.txId)).toEqual(['s1']);
     expect(stats.stoppedAtCap).toBe(1);
   });
 });

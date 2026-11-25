@@ -229,11 +229,13 @@ async function main() {
   // income is a pass-through; what it swaps within 30 days of receiving it
   // counts as the team's sale (`via` = the wallet that swapped, `hop` = how
   // many wallets from the team), and what it moves on is followed further.
-  // Busy wallets (exchanges, services) end the trail. One wallet budget for
-  // the whole run, biggest amounts first. Logs give counts only.
+  // Busy wallets (exchanges, services) end the trail. Every wallet a team paid
+  // directly is checked, for every app; deeper hops get a budget per app,
+  // biggest amounts first. Logs give counts only.
   const allTeam = new Set([...walletSet, ...APP_PAYMENT_WALLETS.map((p) => p.wallet.toLowerCase())]);
   const lotCache = new Map();
-  const LOT_BUDGET = Number(process.env.LOT_WALLETS ?? 700);
+  const LOT_DEEP = Number(process.env.LOT_DEEP_WALLETS ?? 150); // per app, past hop 1
+  let appsTraced = 0;
   let lotFailed = 0;
   async function lotFlowsOf(w) {
     try {
@@ -251,7 +253,7 @@ async function main() {
     let deepest = 0;
     let passCount = 0;
     let capped = 0;
-    // Big groups first, so the budget goes where the money is.
+    // Every app with a team transfer is traced; big ones first.
     const size = (g) => [...g].reduce((a, w) => a + (walletMap[w]?.outflows ?? []).reduce((x, f) => x + (f.kind === 'other_wallet' ? f.value : 0n), 0n), 0n);
     const sorted = groups.map((g) => [g, size(g)]).sort((a, b) => (b[1] > a[1] ? 1 : -1));
     for (const [g] of sorted) {
@@ -263,7 +265,8 @@ async function main() {
         }
       }
       if (!seeds.size) continue;
-      const { sold, stats } = await traceLots({ seeds, flowsOf: lotFlowsOf, isTeam: (x) => g.has(x), isStop: (x) => allTeam.has(x), cache: lotCache, maxWallets: LOT_BUDGET });
+      const { sold, stats } = await traceLots({ seeds, flowsOf: lotFlowsOf, isTeam: (x) => g.has(x), isStop: (x) => allTeam.has(x), cache: lotCache, maxDeep: LOT_DEEP });
+      appsTraced++;
       deepest = Math.max(deepest, stats.deepestHop);
       passCount += stats.passThrough;
       capped += stats.stoppedAtCap;
@@ -277,7 +280,7 @@ async function main() {
         found += soldFlows.length;
       }
     }
-    log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${lotCache.size}/${LOT_BUDGET} wallets checked so far${capped ? `, ${capped} not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
+    log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${appsTraced} apps traced, ${lotCache.size} wallets checked so far${capped ? `, ${capped} deeper wallets not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
   }
   const teamGroups = [...new Map([...appWallets.values()].map((ws) => [[...ws].sort().join(','), ws])).values()];
   await applyPassThrough(wallets, teamGroups, 'team pass-through');
