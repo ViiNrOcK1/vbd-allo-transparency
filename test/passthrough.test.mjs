@@ -156,4 +156,15 @@ describe('following team money over several hops', () => {
     expect(sold.get('f').map((s) => s.txId)).toEqual(['s1']);
     expect(stats.stoppedAtCap).toBe(1);
   });
+
+  it('outside income after a sale does not undo that sale (checked at the moment of each sale)', async () => {
+    const net = {
+      '0xa': {
+        inflows: [{ from: '0xteam', value: B(10000), at: 0 }, { from: '0xjob', value: B(50000), at: 5 * DAY }],
+        outflows: [{ kind: 'sold', value: B(4000), at: 2 * DAY, txId: 's1' }, { kind: 'sold', value: B(6000), at: 6 * DAY, txId: 's2' }],
+      },
+    };
+    const { sold } = await run(net, [seed('f', '0xa', 10000, 0)]);
+    expect(sold.get('f').map((s) => s.txId)).toEqual(['s1']);
+  });
 });

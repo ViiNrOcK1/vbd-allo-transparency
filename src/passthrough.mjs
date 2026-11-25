@@ -12,10 +12,10 @@
 //     (the next hop, where the clock starts again);
 //   - anything else (VOT3, other contracts, small transfers, back to the
 //     team) uses them up without counting as a sale.
-// A lot is usable for WINDOW_DAYS after it arrives, and only if the wallet
-// was a pass-through for it: at least MIN_TEAM_SHARE of what it received,
-// from the day before the lot arrived up to its last sale / move within the
-// window, came from the team or wallets already found to be pass-throughs.
+// A lot is usable for WINDOW_DAYS after it arrives, and only while the
+// wallet is a pass-through for it: at least MIN_TEAM_SHARE of what it
+// received, from the day before the lot arrived up to the sale / move,
+// came from the team or wallets already found to be pass-throughs.
 // Someone's own wallet with other income stops the trail.
 // Exchanges and busy services stop it too (the caller returns null).
 
@@ -72,60 +72,72 @@ export async function traceLots({
       const got = await Promise.all(part.map((w) => flowsOf(w)));
       part.forEach((w, j) => cache.set(w, got[j]));
     }
-    // Which lots count, decided per lot like the one-hop rule: from the day
-    // before the lot arrived up to its last sale / move within the window,
-    // at least minShare of what the wallet received came from the team or
-    // from wallets already found to be pass-throughs. Repeated until nothing
-    // changes, since in one hop A may only qualify once B (which also fed A)
-    // does. A lot is only usable for windowDays after it arrives.
+    // Checked at the moment money leaves: a sale or move uses a lot only if,
+    // from the day before the lot arrived up to that moment, at least
+    // minShare of what the wallet received came from the team or from
+    // wallets already found to be pass-throughs (never stricter than the old
+    // one-hop rule, which looked up to the last sale). A lot is usable for
+    // windowDays after it arrives. Repeated until nothing changes, since in
+    // one hop A may only qualify once B (which also fed A) does.
     const W = windowDays * DAY;
     const useful = (o) => o.kind === 'sold' || (o.kind === 'other_wallet' && o.value >= minValue && o.to && !isStop(o.to));
-    const ok = new Set(); // eligible lot objects
-    const lotOk = (w, l) => {
-      const f = cache.get(w);
-      const ends = f.outflows.filter((o) => o.at != null && o.at >= l.at && o.at <= l.at + W && useful(o)).map((o) => o.at);
-      if (!ends.length) return false;
-      const end = Math.max(...ends);
-      let fromTeam = 0n;
-      let total = 0n;
-      for (const i of f.inflows) {
-        if (i.at == null || i.at < l.at - DAY || i.at > end) continue;
-        total += i.value;
-        if (isTeam(i.from) || pass.has(i.from)) fromTeam += i.value;
+    const shareOf = new Map(); // wallet → (from, to) => share, for the current pass set
+    const buildShare = (w) => {
+      const ins = cache.get(w).inflows.filter((i) => i.at != null).sort((x, y) => x.at - y.at);
+      const at = ins.map((i) => i.at);
+      const tot = [0n];
+      const team = [0n];
+      for (const i of ins) {
+        tot.push(tot[tot.length - 1] + i.value);
+        team.push(team[team.length - 1] + (isTeam(i.from) || pass.has(i.from) ? i.value : 0n));
       }
-      return total > 0n && Number((fromTeam * 1000n) / total) / 1000 >= minShare;
+      const idx = (t, upper) => {
+        let lo = 0;
+        let hi = at.length;
+        while (lo < hi) {
+          const m = (lo + hi) >> 1;
+          if (upper ? at[m] <= t : at[m] < t) lo = m + 1;
+          else hi = m;
+        }
+        return lo;
+      };
+      return (from, to) => {
+        const i = idx(from, false);
+        const j = idx(to, true);
+        const total = tot[j] - tot[i];
+        return total > 0n && Number(((team[j] - team[i]) * 1000n) / total) / 1000 >= minShare;
+      };
     };
     for (let changed = true; changed; ) {
       changed = false;
       for (const [w, ls] of order) {
-        if (!cache.has(w)) continue; // over budget
+        if (pass.has(w) || !cache.has(w)) continue;
         if (cache.get(w) === null) {
           rejected.add(w); // busy / exchange
           continue;
         }
-        for (const l of ls) {
-          if (ok.has(l) || l.value === 0n || !lotOk(w, l)) continue;
-          ok.add(l);
+        const share = buildShare(w);
+        const outs = cache.get(w).outflows.filter((o) => o.at != null && useful(o));
+        if (ls.some((l) => l.value > 0n && outs.some((o) => o.at >= l.at && o.at <= l.at + W && share(l.at - DAY, o.at)))) {
+          pass.add(w);
+          stats.passThrough++;
           changed = true;
-          if (!pass.has(w)) {
-            pass.add(w);
-            stats.passThrough++;
-          }
         }
       }
     }
     for (const [w, lotsIn] of order) {
-      const lots = lotsIn.filter((l) => ok.has(l)).sort((a, b) => a.at - b.at);
+      if (!pass.has(w)) continue;
+      const lots = lotsIn.filter((l) => l.value > 0n).sort((a, b) => a.at - b.at);
       if (!lots.length) continue;
-      const f = cache.get(w);
-      const outs = f.outflows.filter((o) => o.at != null && o.at >= lots[0].at).sort((a, b) => a.at - b.at);
+      const share = buildShare(w);
+      const outs = cache.get(w).outflows.filter((o) => o.at != null && o.at >= lots[0].at).sort((a, b) => a.at - b.at);
       stats.deepestHop = Math.max(stats.deepestHop, hop);
       const take = (t, amount) => {
         const got = [];
         let need = amount;
         for (const l of lots) {
           if (need === 0n) break;
-          if (l.value === 0n || l.at > t || t - l.at > W) continue;
+          if (l.value === 0n || l.at > t || t - l.at > W || !share(l.at - DAY, t)) continue;
           const x = l.value < need ? l.value : need;
           l.value -= x;
           need -= x;
