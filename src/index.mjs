@@ -238,9 +238,10 @@ async function main() {
     const recipients = [...byRecipient.keys()].slice(0, 400);
     let found = 0;
     let skippedBusy = 0;
+    let failed = 0;
     await mapLimit(recipients, 4, async (rcpt) => {
       try {
-        const n = await thor.countLogs([{ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(rcpt, { size: 32 }) }], 0, best.number, 1000);
+        const n = await thor.countLogs({ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(rcpt, { size: 32 }) }, 0, best.number, 1000);
         if (n >= 1000) {
           skippedBusy++;
           return;
@@ -260,10 +261,10 @@ async function main() {
           found += sold.length;
         });
       } catch {
-        /* next run */
+        failed++; // next run
       }
     });
-    log(`${label}: ${found} sales from another wallet found (${recipients.length} receiving wallets checked, ${skippedBusy} busy ones skipped)`);
+    log(`${label}: ${found} sales from another wallet found (${recipients.length} receiving wallets checked, ${skippedBusy} busy ones skipped${failed ? `, ${failed} lookups FAILED` : ''})`);
   }
   await applyPassThrough(wallets, (w) => groupOf.get(w), 'team pass-through');
 
