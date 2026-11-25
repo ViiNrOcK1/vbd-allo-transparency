@@ -9,6 +9,22 @@ export const KNOWN_SERVICE_WALLETS = new Map([
 ]);
 
 /**
+ * Wallets an app collects payments in (subscriptions, shop sales) — not DAO
+ * allocation money, so they stay out of the team totals, but what they sell
+ * is shown on the app (Vinny, 2026-11-24: Mugshot sold 322k B3TR of
+ * subscription money the same day as 227k of allocation money, and the
+ * tracker showed neither as sold). Add an entry once it's confirmed.
+ */
+export const APP_PAYMENT_WALLETS = [
+  {
+    wallet: '0x14750a75aa18ede1d0403d40d04aff9fe450ed48',
+    appId: '0x2fc30c2ad41a2994061efaf218f1d52dc92bc4a31a0f02a4916490076a7a393a',
+    label: 'Subscription payments',
+    confirmedBy: 'morbidejs, 2026-11-21',
+  },
+];
+
+/**
  * Collectors that look like a price list rather than a farm, for a person to
  * check (not excluded automatically): most payments in are the same round
  * amount (≥ 10 B3TR, a multiple of 5) from several different wallets. A farm
