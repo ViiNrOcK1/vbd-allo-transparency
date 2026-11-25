@@ -7,15 +7,16 @@
 // Model: lots. Each team transfer of at least MIN_B3TR to a plain wallet is
 // a lot. In each wallet, lots are spent oldest first, in time order:
 //   - a swap in a B3TR pool sells them (counted as the team's sale, "via"
-//     that wallet), but only lots that arrived there within WINDOW_DAYS;
+//     that wallet);
 //   - a transfer of at least MIN_B3TR to another plain wallet moves them on
-//     (the next hop);
+//     (the next hop, where the clock starts again);
 //   - anything else (VOT3, other contracts, small transfers, back to the
 //     team) uses them up without counting as a sale.
-// A wallet passes lots on only if it is a pass-through: at least
-// MIN_TEAM_SHARE of what it received, from the day before its first lot up
-// to its last move, came from the team or wallets already found to be
-// pass-throughs. Someone's own wallet with other income stops the trail.
+// A lot is usable for WINDOW_DAYS after it arrives, and only if the wallet
+// was a pass-through for it: at least MIN_TEAM_SHARE of what it received,
+// from the day before the lot arrived up to its last sale / move within the
+// window, came from the team or wallets already found to be pass-throughs.
+// Someone's own wallet with other income stops the trail.
 // Exchanges and busy services stop it too (the caller returns null).
 
 export const MIN_B3TR = 1000n * 10n ** 18n;
@@ -47,7 +48,7 @@ export async function traceLots({
   const pass = new Set();
   const rejected = new Set();
   const sold = new Map();
-  const stats = { passThrough: 0, deepestHop: 0, stoppedAtCap: 0 };
+  const stats = { passThrough: 0, deepestHop: 0, stoppedAtCap: 0, moved: 0n, usedOther: 0n };
   let deep = 0;
   const lotTotal = (ls) => ls.reduce((a, l) => a + l.value, 0n);
   let frontier = seeds;
@@ -71,19 +72,24 @@ export async function traceLots({
       const got = await Promise.all(part.map((w) => flowsOf(w)));
       part.forEach((w, j) => cache.set(w, got[j]));
     }
-    // Decide who is a pass-through, repeating until nothing changes: in one
-    // hop, A's share may only reach 90% once B (which also fed A) is in.
-    const shareOk = (w) => {
+    // Which lots count, decided per lot like the one-hop rule: from the day
+    // before the lot arrived up to its last sale / move within the window,
+    // at least minShare of what the wallet received came from the team or
+    // from wallets already found to be pass-throughs. Repeated until nothing
+    // changes, since in one hop A may only qualify once B (which also fed A)
+    // does. A lot is only usable for windowDays after it arrives.
+    const W = windowDays * DAY;
+    const useful = (o) => o.kind === 'sold' || (o.kind === 'other_wallet' && o.value >= minValue && o.to && !isStop(o.to));
+    const ok = new Set(); // eligible lot objects
+    const lotOk = (w, l) => {
       const f = cache.get(w);
-      const lots = frontier.get(w).filter((l) => l.value > 0n);
-      if (!f || !lots.length) return false;
-      const firstAt = Math.min(...lots.map((l) => l.at));
-      const outAts = f.outflows.filter((o) => o.at != null && o.at >= firstAt).map((o) => o.at);
-      const lastAt = outAts.length ? Math.max(...outAts) : firstAt;
+      const ends = f.outflows.filter((o) => o.at != null && o.at >= l.at && o.at <= l.at + W && useful(o)).map((o) => o.at);
+      if (!ends.length) return false;
+      const end = Math.max(...ends);
       let fromTeam = 0n;
       let total = 0n;
       for (const i of f.inflows) {
-        if (i.at == null || i.at < firstAt - DAY || i.at > lastAt) continue;
+        if (i.at == null || i.at < l.at - DAY || i.at > end) continue;
         total += i.value;
         if (isTeam(i.from) || pass.has(i.from)) fromTeam += i.value;
       }
@@ -91,32 +97,35 @@ export async function traceLots({
     };
     for (let changed = true; changed; ) {
       changed = false;
-      for (const [w] of order) {
-        if (pass.has(w) || !cache.has(w)) continue;
+      for (const [w, ls] of order) {
+        if (!cache.has(w)) continue; // over budget
         if (cache.get(w) === null) {
           rejected.add(w); // busy / exchange
           continue;
         }
-        if (shareOk(w)) {
-          pass.add(w);
-          stats.passThrough++;
+        for (const l of ls) {
+          if (ok.has(l) || l.value === 0n || !lotOk(w, l)) continue;
+          ok.add(l);
           changed = true;
+          if (!pass.has(w)) {
+            pass.add(w);
+            stats.passThrough++;
+          }
         }
       }
     }
     for (const [w, lotsIn] of order) {
-      if (!pass.has(w)) continue; // over budget, busy, or not a pass-through (yet)
-      const f = cache.get(w);
-      const lots = lotsIn.filter((l) => l.value > 0n).sort((a, b) => a.at - b.at);
+      const lots = lotsIn.filter((l) => ok.has(l)).sort((a, b) => a.at - b.at);
       if (!lots.length) continue;
+      const f = cache.get(w);
       const outs = f.outflows.filter((o) => o.at != null && o.at >= lots[0].at).sort((a, b) => a.at - b.at);
       stats.deepestHop = Math.max(stats.deepestHop, hop);
-      const take = (t, amount, maxAge) => {
+      const take = (t, amount) => {
         const got = [];
         let need = amount;
         for (const l of lots) {
           if (need === 0n) break;
-          if (l.value === 0n || l.at > t || (maxAge != null && t - l.at > maxAge)) continue;
+          if (l.value === 0n || l.at > t || t - l.at > W) continue;
           const x = l.value < need ? l.value : need;
           l.value -= x;
           need -= x;
@@ -129,19 +138,20 @@ export async function traceLots({
         // earlier visit already matched.
         o.left ??= o.value;
         if (o.left === 0n) continue;
-        let got;
+        const got = take(o.at, o.left);
+        if (!got.length) continue;
+        const n = got.reduce((a, g) => a + g.value, 0n);
         if (o.kind === 'sold') {
-          got = take(o.at, o.left, windowDays * DAY);
           for (const g of got) {
             (sold.get(g.ref) ?? sold.set(g.ref, []).get(g.ref)).push({ value: g.value, at: o.at, txId: o.txId, via: w, saleValue: o.value, hop });
           }
-        } else if (o.kind === 'other_wallet' && o.value >= minValue && o.to && !isStop(o.to)) {
-          got = take(o.at, o.left, null);
+        } else if (useful(o)) {
           for (const g of got) (next.get(o.to) ?? next.set(o.to, []).get(o.to)).push({ ref: g.ref, value: g.value, at: o.at });
+          stats.moved += n;
         } else {
-          got = take(o.at, o.left, null);
+          stats.usedOther += n; // VOT3, other contracts, small transfers, back to a team
         }
-        o.left -= got.reduce((a, g) => a + g.value, 0n);
+        o.left -= n;
       }
     }
     frontier = next;

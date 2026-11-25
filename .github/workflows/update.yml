@@ -54,7 +54,7 @@ jobs:
         continue-on-error: true
         run: |
           node scripts/audit.mjs
-          openssl rand -out audit/key.bin 32
+          openssl rand -hex -out audit/key.bin 32
           openssl enc -aes-256-cbc -pbkdf2 -salt -in audit/sample.json -out audit/sample.enc -pass file:audit/key.bin
           openssl pkeyutl -encrypt -pubin -inkey audit/audit-public.pem -pkeyopt rsa_padding_mode:oaep -in audit/key.bin -out audit/key.enc
           echo "AUDIT-KEY-BEGIN"; base64 -w0 audit/key.enc; echo; echo "AUDIT-KEY-END"

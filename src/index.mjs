@@ -253,6 +253,8 @@ async function main() {
     let deepest = 0;
     let passCount = 0;
     let capped = 0;
+    let moved = 0n;
+    let usedOther = 0n;
     // Every app with a team transfer is traced; big ones first.
     const size = (g) => [...g].reduce((a, w) => a + (walletMap[w]?.outflows ?? []).reduce((x, f) => x + (f.kind === 'other_wallet' ? f.value : 0n), 0n), 0n);
     const sorted = groups.map((g) => [g, size(g)]).sort((a, b) => (b[1] > a[1] ? 1 : -1));
@@ -270,6 +272,8 @@ async function main() {
       deepest = Math.max(deepest, stats.deepestHop);
       passCount += stats.passThrough;
       capped += stats.stoppedAtCap;
+      moved += stats.moved;
+      usedOther += stats.usedOther;
       for (const [{ w, f }, parts] of sold) {
         const list = walletMap[w].outflows;
         const at = list.indexOf(f);
@@ -280,7 +284,7 @@ async function main() {
         found += soldFlows.length;
       }
     }
-    log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${appsTraced} apps traced, ${lotCache.size} wallets checked so far${capped ? `, ${capped} deeper wallets not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
+    log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${Number(moved / 10n ** 18n)} B3TR moved on a hop, ${Number(usedOther / 10n ** 18n)} B3TR left the trail another way (VOT3, contracts, small sends), ${appsTraced} apps traced, ${lotCache.size} wallets checked so far${capped ? `, ${capped} deeper wallets not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
   }
   const teamGroups = [...new Map([...appWallets.values()].map((ws) => [[...ws].sort().join(','), ws])).values()];
   await applyPassThrough(wallets, teamGroups, 'team pass-through');

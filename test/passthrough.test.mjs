@@ -90,11 +90,31 @@ describe('following team money over several hops', () => {
 
   it('the 30-day window starts again at each hop (when the money arrived there)', async () => {
     const net = {
-      '0xa': { inflows: [{ from: '0xteam', value: B(5000), at: 0 }], outflows: [{ kind: 'other_wallet', to: '0xb', value: B(5000), at: 60 * DAY, txId: 'm' }] },
-      '0xb': { inflows: [{ from: '0xa', value: B(5000), at: 60 * DAY }], outflows: [{ kind: 'sold', value: B(5000), at: 70 * DAY, txId: 's' }] },
+      '0xa': { inflows: [{ from: '0xteam', value: B(5000), at: 0 }], outflows: [{ kind: 'other_wallet', to: '0xb', value: B(5000), at: 20 * DAY, txId: 'm' }] },
+      '0xb': { inflows: [{ from: '0xa', value: B(5000), at: 20 * DAY }], outflows: [{ kind: 'sold', value: B(5000), at: 45 * DAY, txId: 's' }] },
     };
     const { sold } = await run(net, [seed('f', '0xa', 5000, 0)]);
     expect(sold.get('f').map((s) => [s.via, s.value])).toEqual([['0xb', B(5000)]]);
+  });
+
+  it('a lot sitting more than 30 days is not followed', async () => {
+    const net = {
+      '0xa': { inflows: [{ from: '0xteam', value: B(5000), at: 0 }], outflows: [{ kind: 'other_wallet', to: '0xb', value: B(5000), at: 60 * DAY, txId: 'm' }] },
+      '0xb': { inflows: [{ from: '0xa', value: B(5000), at: 60 * DAY }], outflows: [{ kind: 'sold', value: B(5000), at: 61 * DAY, txId: 's' }] },
+    };
+    const { sold } = await run(net, [seed('f', '0xa', 5000, 0)]);
+    expect(sold.get('f')).toBeUndefined();
+  });
+
+  it('later income of a long-lived wallet does not undo an earlier pass-through', async () => {
+    const net = {
+      '0xa': {
+        inflows: [{ from: '0xteam', value: B(8000), at: 0 }, { from: '0xjob', value: B(90000), at: 100 * DAY }],
+        outflows: [{ kind: 'sold', value: B(8000), at: 3 * DAY, txId: 's1' }, { kind: 'sold', value: B(90000), at: 101 * DAY, txId: 's2' }],
+      },
+    };
+    const { sold } = await run(net, [seed('f', '0xa', 8000, 0)]);
+    expect(sold.get('f').map((s) => s.txId)).toEqual(['s1']);
   });
 
   it('the trail stops at a wallet with its own income, at a busy wallet, and back at the team', async () => {
