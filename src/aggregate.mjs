@@ -22,7 +22,7 @@ export function pct(part, whole) {
  * @param {Record<string,{balance:bigint,outflows:{to:string,value:bigint,kind:string}[]}>} input.wallets lower-case wallet → flows
  * @param {string} input.xAllocationPool
  */
-export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {}, priceAt = () => null, endorsersOf = {}, rewardsTo = {} }) {
+export function summarize({ apps, claims, deposits, withdrawals, poolBalances, wallets, xAllocationPool, grantsTo = {}, priceAt = () => null, endorsersOf = {}, rewardsTo = {}, extraWallets = [] }) {
   const xap = xAllocationPool.toLowerCase();
   // Dollars at the time: each amount × the B3TR price on the day it moved.
   const usd = (wei, ts) => {
@@ -47,6 +47,14 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
   for (const c of claims) walletsOf.get(c.appId)?.add(c.recipient.toLowerCase());
   // A withdrawal can go to a wallet that never received a claim.
   for (const w of withdrawals) walletsOf.get(w.appId)?.add(w.teamWallet.toLowerCase());
+  // Wallets the team uses besides those, confirmed by name (services.mjs).
+  const extraOf = new Map();
+  for (const x of extraWallets) {
+    const id = [...walletsOf.keys()].find((k) => k.toLowerCase() === x.appId.toLowerCase());
+    if (!id) continue;
+    walletsOf.get(id).add(x.wallet.toLowerCase());
+    (extraOf.get(id) ?? extraOf.set(id, []).get(id)).push({ wallet: x.wallet.toLowerCase(), label: x.label, evidence: x.evidence, confirmedBy: x.confirmedBy });
+  }
 
   // Which apps share a wallet — their wallet flows cannot be split per app.
   const appsOfWallet = new Map();
@@ -249,6 +257,7 @@ export function summarize({ apps, claims, deposits, withdrawals, poolBalances, w
       active: app.active,
       teamAllocationPercentage: app.teamAllocationPercentage,
       teamWallets: myWallets,
+      confirmedWallets: extraOf.get(app.id) ?? [],
       currentTeamWallet: app.teamWallet.toLowerCase(),
       sharedWalletWith: [...sharedWith],
       rounds: myClaims.length,

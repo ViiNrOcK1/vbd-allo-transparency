@@ -167,7 +167,10 @@ function detailHtml(a) {
     })
     .join('');
   const wallets = a.teamWallets
-    .map((w) => `<a class="addr" href="${EXPLORER}${esc(w)}" target="_blank" rel="noopener">${esc(short(w))}</a>${w === a.currentTeamWallet ? ' (current)' : ''}`)
+    .map((w) => {
+      const c = (a.confirmedWallets ?? []).find((x) => x.wallet === w);
+      return `<a class="addr" href="${EXPLORER}${esc(w)}" target="_blank" rel="noopener">${esc(short(w))}</a>${w === a.currentTeamWallet ? ' (current)' : ''}${c ? ` (${esc(c.label)}: ${esc(c.evidence)}; confirmed by ${esc(c.confirmedBy)} — can be wrong and will be corrected)` : ''}`;
+    })
     .join(', ');
   return `<div class="dgrid">
     <div class="dbox">

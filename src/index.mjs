@@ -16,7 +16,7 @@ import { emptyPayouts, foldPayouts, reviewedNetworkStats, userStats, WINDOW_DAYS
 import { currentLinks, decodePassportLog, personOfFactory } from './people.mjs';
 import { BUSY_CAP, busyLimit, earliestFunding, funderConfirmed, funderEvidence, funderLinks } from './funders.mjs';
 import { flowOf, forwardLinks } from './forwards.mjs';
-import { APP_PAYMENT_WALLETS, KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
+import { APP_PAYMENT_WALLETS, CONFIRMED_TEAM_WALLETS, KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
 import { MIN_B3TR as PASS_MIN, traceLots } from './passthrough.mjs';
 import { REVIEWED_LINKS, reviewedPairs } from './reviewed.mjs';
 const SERVICE_HUB_TX = 1000;
@@ -120,6 +120,13 @@ async function main() {
   const appWallets = new Map(apps.map((a) => [a.id, new Set([a.teamWallet])]));
   for (const c of claims) appWallets.get(c.appId)?.add(c.recipient);
   for (const w of withdrawals) appWallets.get(w.appId)?.add(w.teamWallet);
+  // Extra wallets a team uses, confirmed by name (services.mjs).
+  for (const c of CONFIRMED_TEAM_WALLETS) {
+    const ws = appWallets.get(c.appId.toLowerCase()) ?? appWallets.get(c.appId);
+    if (!ws) continue;
+    ws.add(c.wallet.toLowerCase());
+    walletSet.add(c.wallet.toLowerCase());
+  }
   for (const ws of appWallets.values()) for (const w of ws) {
     const g = groupOf.get(w) ?? new Set();
     for (const x of ws) g.add(x);
@@ -285,6 +292,16 @@ async function main() {
       }
     }
     log(`${label}: ${found} sales from other wallets found, ${passCount} pass-through wallets, deepest hop ${deepest}, ${Number(moved / 10n ** 18n)} B3TR moved on a hop, ${Number(usedOther / 10n ** 18n)} B3TR left the trail another way (VOT3, contracts, small sends), ${appsTraced} apps traced, ${lotCache.size} wallets checked so far${capped ? `, ${capped} deeper wallets not followed (budget)` : ''}${lotFailed ? `, ${lotFailed} lookups FAILED` : ''}`);
+  }
+  for (const c of CONFIRMED_TEAM_WALLETS) {
+    const f = wallets[c.wallet.toLowerCase()];
+    if (!f) continue;
+    const by = {};
+    for (const i of f.inflows) by[i.kind] = (by[i.kind] ?? 0n) + i.value;
+    const fromPay = f.inflows.filter((i) => APP_PAYMENT_WALLETS.some((p) => p.wallet.toLowerCase() === i.from)).reduce((a, i) => a + i.value, 0n);
+    const sold = f.outflows.filter((o) => o.kind === 'sold').reduce((a, o) => a + o.value, 0n);
+    const b = (x) => Number(x / 10n ** 18n);
+    log(`confirmed team wallet "${c.label}": received ${Object.entries(by).map(([k, v]) => `${k} ${b(v)}`).join(' · ')} (from payment wallets ${b(fromPay)}) · sold itself ${b(sold)}`);
   }
   const teamGroups = [...new Map([...appWallets.values()].map((ws) => [[...ws].sort().join(','), ws])).values()];
   await applyPassThrough(wallets, teamGroups, 'team pass-through');
@@ -1151,6 +1168,7 @@ async function main() {
     wallets,
     xAllocationPool: MAINNET.xAllocationPool,
     priceAt,
+    extraWallets: CONFIRMED_TEAM_WALLETS,
   });
 
   await mkdir(OUT, { recursive: true });

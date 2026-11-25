@@ -24,6 +24,26 @@ export const APP_PAYMENT_WALLETS = [
   },
 ];
 
+// Wallets an app's team uses besides the ones VeBetterDAO pays, counted as
+// that app's team wallets (moves between them are internal; what they sell
+// is the team's sale). Each needs on-chain evidence AND a named confirmation.
+export const CONFIRMED_TEAM_WALLETS = [
+  {
+    wallet: '0x16417216c91709d9a6661bfb740feec255c4979c',
+    appId: '0x2fc30c2ad41a2994061efaf218f1d52dc92bc4a31a0f02a4916490076a7a393a',
+    label: 'Treasury',
+    evidence: 'funded by the Mugshot team wallet; passes it on',
+    confirmedBy: 'morbidejs, 2026-11-25',
+  },
+  {
+    wallet: '0x4123ff180d70a6016ae426e4c01ae8eb6e86f233',
+    appId: '0x2fc30c2ad41a2994061efaf218f1d52dc92bc4a31a0f02a4916490076a7a393a',
+    label: 'Swap wallet (B3TR → VET)',
+    evidence: 'funded only by the Treasury above; swaps it',
+    confirmedBy: 'morbidejs, 2026-11-25',
+  },
+];
+
 /**
  * Collectors that look like a price list rather than a farm, for a person to
  * check (not excluded automatically): most payments in are the same round
