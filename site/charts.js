@@ -253,11 +253,14 @@ export function sellerRows(apps) {
     const v = a.valueUsd;
     if (!v) continue;
     const key = [...(a.teamWallets ?? [a.currentTeamWallet ?? a.id])].map((w) => String(w).toLowerCase()).sort().join(',');
-    const r = by.get(key) ?? { names: [], sold: 0, other: 0, allocated: 0 };
+    const r = by.get(key) ?? { names: [], sold: 0, other: 0, allocated: 0, soldB3tr: 0, otherB3tr: 0 };
     r.names.push(a.name.trim());
     // Same wallet → same flows on every app that shares it: take them once.
     r.sold = Math.max(r.sold, v.sold ?? 0);
     r.other = Math.max(r.other, v.toOtherWallets ?? 0);
+    const tok = (x) => (x ? Number(BigInt(x) / 10n ** 18n) : 0);
+    r.soldB3tr = Math.max(r.soldB3tr, tok(a.teamWallet?.sent?.sold));
+    r.otherB3tr = Math.max(r.otherB3tr, tok(v.toOtherWalletsB3tr?.net));
     r.allocated += v.allocation ?? 0;
     by.set(key, r);
   }
@@ -276,13 +279,13 @@ function sellersChart(el, apps, state = { all: false }, repaint = () => {}) {
   const usd = (n) => '$' + fmt(n);
   const totalSold = all.reduce((t, r) => t + r.sold, 0);
   const totalOther = all.reduce((t, r) => t + r.other, 0);
-  el.innerHTML = `<div class="viz-head"><h3>Sold or moved out by team wallets, in $ at the time</h3></div>
+  el.innerHTML = `<div class="viz-head"><h3>Sold or moved out by team wallets — all time, in US$ at each day’s price</h3></div>
     <div class="viz-legend"><span><span class="sw s2"></span>Sold (proven swaps)</span><span><span class="sw s4"></span>Sent to other wallets (usually exchanges or payroll)</span></div>
     <div class="users-row users-hd" aria-hidden="true"><span></span><span></span><span class="v">Total</span><span class="sh">Allocated</span></div>
     <div class="users-rows">${rows
       .map((r) => {
         const name = r.names.join(' + ');
-        const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="sw s2"></span>Sold: ${usd(r.sold)}<br><span class="sw s4"></span>To other wallets: ${usd(r.other)}<br>Allocation was worth ${usd(r.allocated)} when received`;
+        const tipHtml = `<strong>${esc(name)}</strong>${r.names.length > 1 ? ' (one shared wallet)' : ''}<br><span class="sw s2"></span>Sold: ${usd(r.sold)} (${fmt(r.soldB3tr)} B3TR)<br><span class="sw s4"></span>To other wallets: ${usd(r.other)} (${fmt(r.otherB3tr)} B3TR)<br>Allocation was worth ${usd(r.allocated)} when received`;
         return `<div class="users-row" tabindex="0" data-tip="${esc(tipHtml)}">
           <span class="nm">${esc(name)}</span>
           <span class="bar split-bar">${r.sold ? `<i class="s2" style="width:${((r.sold / max) * 100).toFixed(2)}%"></i>` : ''}${r.other ? `<i class="s4" style="width:${((r.other / max) * 100).toFixed(2)}%"></i>` : ''}${!r.sold && !r.other ? '<span class="none">none</span>' : ''}</span>
@@ -291,7 +294,7 @@ function sellersChart(el, apps, state = { all: false }, repaint = () => {}) {
         </div>`;
       })
       .join('')}</div>
-    <p class="fine">All time, each transfer valued at that day’s B3TR price. All apps: ${usd(totalSold)} sold in proven swaps, ${usd(totalOther)} sent to other wallets. “Sold” only counts swaps we can prove on-chain, so it’s a floor. Apps that share one team wallet are one row. Moving B3TR out isn’t wrong in itself — teams pay real costs — this just shows the size.</p>`;
+    <p class="fine">Dollars, not B3TR: each transfer is valued at that day’s B3TR price (hover a row for the B3TR amounts). B3TR was worth far more in early 2025 than now, so a big B3TR sale this year can be a small dollar figure. All apps: ${usd(totalSold)} sold in proven swaps, ${usd(totalOther)} sent to other wallets. “Sold” only counts swaps we can prove on-chain, so it’s a floor. Apps that share one team wallet are one row. Moving B3TR out isn’t wrong in itself — teams pay real costs — this just shows the size.</p>`;
   showAllButton(el, all.length, state, repaint);
 }
 
