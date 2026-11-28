@@ -1203,22 +1203,24 @@ async function main() {
         flows.push({ app: appOfWallet.get(w), token: 'VET', to, value: Number(BigInt(x.amount) / 10n ** 15n) / 1000, at: x.meta.blockTimestamp });
       }
     });
-    const depCache = await loadCache('deposits'); // `${token}|${addr}` → { ex, at }
+    const depCache = await loadCache('deposits'); // `${token}|${addr}` → { ex, at, v }
+    // A new exchange on the list means every "not a deposit" answer is stale.
+    const exListVersion = [...EXCHANGE_WALLETS.keys()].sort().join(',').length + ':' + EXCHANGE_WALLETS.size;
     const totalTo = new Map();
     for (const f of flows) totalTo.set(`${f.token}|${f.to}`, (totalTo.get(`${f.token}|${f.to}`) ?? 0) + f.value);
     let checked = 0;
     const classify = async (token, to) => {
       const k = `${token}|${to}`;
       const c = depCache[k];
-      if (c && (c.ex || c.at > best.timestamp - 7 * 86_400)) return c.ex;
+      if (c && c.v === exListVersion && (c.ex || c.at > best.timestamp - 7 * 86_400)) return c.ex;
       if ((totalTo.get(k) ?? 0) < (token === 'VET' ? 1000 : 100)) return null; // dust: not worth a lookup
-      if (await isContract(to)) return (depCache[k] = { ex: null, at: best.timestamp }).ex;
+      if (await isContract(to)) return (depCache[k] = { ex: null, at: best.timestamp, v: exListVersion }).ex;
       checked++;
       const outs =
         token === 'VET'
           ? (await vetTransfers({ sender: to }, 5000)).map((x) => ({ to: String(x.recipient).toLowerCase(), value: Number(BigInt(x.amount) / 10n ** 15n) / 1000 }))
           : (await thor.logs([{ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(to, { size: 32 }) }], 0, best.number)).map((l) => ({ to: ('0x' + l.topics[2].slice(26)).toLowerCase(), value: Number(BigInt(l.data) / 10n ** 15n) / 1000 }));
-      depCache[k] = { ex: depositExchange(outs), at: best.timestamp };
+      depCache[k] = { ex: depositExchange(outs), at: best.timestamp, v: exListVersion };
       return depCache[k].ex;
     };
     const totals = await exchangeTotals(flows, classify, (token, ts) => (token === 'VET' ? vetUsdAt(dayOf(ts)) : priceAt(ts)));
