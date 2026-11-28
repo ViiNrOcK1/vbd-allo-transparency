@@ -259,6 +259,98 @@ function describe(list, label) {
 const N = describe(newP, 'new wallets');
 const C = describe(ctrlP, 'control: long-time users');
 
+// ── 4b. proof photos: do "different" wallets upload the same picture? ──
+// The app publishes each reward's proof on-chain; photo proofs are public
+// links. A 64-bit difference hash (dHash) per photo; two photos within
+// IMG_DIST bits are the same picture (re-uploads, crops, re-compression).
+const IMG_DIST = 6;
+const IMG_NEW = 3000;
+const IMG_CTRL = 400;
+const urlsOf = (w) => {
+  const us = [];
+  for (const x of payouts.get(w) ?? []) {
+    try {
+      const j = JSON.parse(x.proof);
+      const walk = (o, k) => {
+        if (o && typeof o === 'object') for (const [kk, v] of Object.entries(o)) walk(v, kk);
+        else if (typeof o === 'string' && /^https?:\/\//.test(o) && (/image|photo|picture/i.test(k) || /\.(png|jpe?g|webp|heic)(\?|$)/i.test(o))) us.push(o);
+      };
+      walk(j, '');
+    } catch {}
+  }
+  return us;
+};
+let sharp = null;
+try {
+  sharp = (await import('sharp')).default;
+} catch {}
+async function dhash(url) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 15_000);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    const px = await sharp(buf).rotate().greyscale().resize(9, 8, { fit: 'fill' }).raw().toBuffer();
+    let hi = 0;
+    let lo = 0;
+    for (let y = 0; y < 8; y++)
+      for (let x = 0; x < 8; x++) {
+        const bit = px[y * 9 + x] > px[y * 9 + x + 1] ? 1 : 0;
+        const i = y * 8 + x;
+        if (i < 32) hi = (hi << 1) | bit;
+        else lo = (lo << 1) | bit;
+      }
+    return [hi >>> 0, lo >>> 0];
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+const pop = (x) => {
+  x -= (x >>> 1) & 0x55555555;
+  x = (x & 0x33333333) + ((x >>> 2) & 0x33333333);
+  return (((x + (x >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+};
+async function photoCheck(wallets, cap) {
+  // Up to 3 photos per wallet, wallets in a fixed order.
+  const items = [];
+  for (const w of wallets) {
+    for (const u of urlsOf(w).slice(0, 3)) items.push({ w, u });
+    if (items.length >= cap) break;
+  }
+  const hashes = await mapLimit(items, 16, async (it) => ({ ...it, h: await dhash(it.u) }));
+  const ok = hashes.filter((x) => x.h);
+  // Pairs of photos from DIFFERENT wallets that are the same picture.
+  const parentI = ok.map((_, i) => i);
+  const f = (i) => (parentI[i] === i ? i : (parentI[i] = f(parentI[i])));
+  let crossPairs = 0;
+  for (let i = 0; i < ok.length; i++)
+    for (let j = i + 1; j < ok.length; j++) {
+      if (ok[i].w === ok[j].w) continue;
+      if (pop(ok[i].h[0] ^ ok[j].h[0]) + pop(ok[i].h[1] ^ ok[j].h[1]) <= IMG_DIST) {
+        crossPairs++;
+        parentI[f(i)] = f(j);
+      }
+    }
+  const clusters = new Map();
+  ok.forEach((x, i) => {
+    const r = f(i);
+    (clusters.get(r) ?? clusters.set(r, []).get(r)).push(x);
+  });
+  const multi = [...clusters.values()].map((c) => ({ wallets: [...new Set(c.map((x) => x.w))], photos: c.map((x) => x.u) })).filter((c) => c.wallets.length >= 2).sort((a, b) => b.wallets.length - a.wallets.length);
+  const walletsInShared = new Set(multi.flatMap((c) => c.wallets));
+  const walletsChecked = new Set(ok.map((x) => x.w));
+  return { photos: items.length, hashed: ok.length, walletsChecked: walletsChecked.size, crossWalletPairs: crossPairs, walletsSharingAPhoto: walletsInShared.size, sharedPct: pct(walletsInShared.size, walletsChecked.size), clusters: multi.slice(0, 60), biggest: multi.slice(0, 10).map((c) => c.wallets.length) };
+}
+let photoNew = null;
+let photoCtrl = null;
+if (sharp && newW.some((w) => urlsOf(w).length)) {
+  photoNew = await photoCheck(newP.filter((p) => !p.error).map((p) => p.w), IMG_NEW);
+  photoCtrl = await photoCheck(ctrlP.filter((p) => !p.error).map((p) => p.w), IMG_CTRL);
+}
+
 // ── 5. groups: shared funder / sweep destination / private delegator ──
 const counts = (k) => new Map(N[k].map(([a, c]) => [a, c]));
 const candidates = new Set([...N.topVetFunders, ...N.topVthoFunders, ...N.topSweepDestinations, ...N.topFeeDelegators].filter(([, c]) => c >= 3).map(([a]) => a));
@@ -311,10 +403,11 @@ say(`top VET funder funded ${N.topVetFunders[0]?.[1] ?? 0} new wallets; top VTHO
 say(`groups: ${groupList.length} groups hold ${inGroups} new wallets (${pct(inGroups, N.wallets)}%); biggest ${groupList.slice(0, 8).map((g) => g.length).join(', ')}`);
 say(`first paid by day: ${N.firstPaidByDay.map(([d, c]) => `${d.slice(5)} ${c}`).join(' · ')} · busiest minute ${N.busiestMinute[0]?.[1] ?? 0} wallets`);
 say(`proof: ${N.proofValuesSharedBy5Plus.length} proof values shared by 5+ new wallets (control: ${C.proofValuesSharedBy5Plus.length})`);
+if (photoNew) say(`photos: new wallets ${photoNew.walletsSharingAPhoto} of ${photoNew.walletsChecked} (${photoNew.sharedPct}%) share the same picture with another wallet, ${photoNew.hashed}/${photoNew.photos} photos read, biggest groups ${photoNew.biggest.join(', ')} · control ${photoCtrl.walletsSharingAPhoto} of ${photoCtrl.walletsChecked} (${photoCtrl.sharedPct}%)`);
 
 await mkdir('investigate', { recursive: true });
 await writeFile(
   OUT,
-  JSON.stringify({ app: app.name.trim(), appId, at: new Date(now * 1000).toISOString(), days: DAYS, lookbackDays: LOOKBACK_DAYS, newWallets: N, control: C, kind, linkers, groups: groupList.map((g) => ({ size: g.length, members: g })), profiles: newP }),
+  JSON.stringify({ app: app.name.trim(), appId, at: new Date(now * 1000).toISOString(), days: DAYS, lookbackDays: LOOKBACK_DAYS, newWallets: N, control: C, photoNew, photoCtrl, kind, linkers, groups: groupList.map((g) => ({ size: g.length, members: g })), profiles: newP }),
 );
 say('details written (encrypted below)');
