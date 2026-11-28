@@ -42,6 +42,11 @@ if (target === 'bridges') {
   await import('./bridges.mjs');
   process.exit(0);
 }
+if (String(target).startsWith('link:')) {
+  process.env.APP = target;
+  await import('./link.mjs');
+  process.exit(0);
+}
 if (target === 'proceeds') {
   await import('./proceeds.mjs');
   process.exit(0);
