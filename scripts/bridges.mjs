@@ -41,7 +41,7 @@ const USERLOCK = toFunctionSelector('userLock(bytes32,uint256,uint256,bytes)');
 const summary = JSON.parse(await readFile('site/data/summary.json', 'utf8'));
 const teamOf = new Map();
 for (const a of summary.apps) for (const w of [...(a.teamWallets ?? []), ...(a.confirmedWallets ?? []).map((c) => c.wallet)]) teamOf.set(w.toLowerCase(), a.name.trim());
-for (const p of summary.paymentWallets ?? []) if (p.wallet) teamOf.set(p.wallet.toLowerCase(), `${p.app ?? 'app'} payment wallet`);
+for (const [id, list] of Object.entries(summary.paymentWallets ?? {})) for (const p of list ?? []) if (p.wallet) teamOf.set(p.wallet.toLowerCase(), `${summary.apps.find((a) => a.id.toLowerCase() === id)?.name.trim() ?? 'app'} payment wallet`);
 const pc = JSON.parse(await readFile('cache/payouts.json', 'utf8'));
 const rewarded = new Map(); // wallet → { apps:Set, b3tr, first }
 for (const [at, a, r, b] of pc.rows) {

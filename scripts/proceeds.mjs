@@ -53,7 +53,7 @@ async function mapLimit(list, n, fn) {
 const summary = JSON.parse(await readFile('site/data/summary.json', 'utf8'));
 const teamOf = new Map();
 for (const a of summary.apps) for (const w of [...(a.teamWallets ?? []), ...(a.confirmedWallets ?? []).map((c) => c.wallet)]) if (!teamOf.has(w.toLowerCase())) teamOf.set(w.toLowerCase(), a.name.trim());
-for (const p of summary.paymentWallets ?? []) if (p.wallet) teamOf.set(p.wallet.toLowerCase(), teamOf.get(p.wallet.toLowerCase()) ?? 'payment wallet');
+for (const [id, list] of Object.entries(summary.paymentWallets ?? {})) for (const p of list ?? []) if (p.wallet) teamOf.set(p.wallet.toLowerCase(), `${summary.apps.find((a) => a.id.toLowerCase() === id)?.name.trim() ?? 'app'} payment wallet`);
 
 const codeCache = new Map();
 const isContract = async (a) => {
