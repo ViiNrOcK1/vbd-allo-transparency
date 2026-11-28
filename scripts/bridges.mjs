@@ -53,9 +53,26 @@ for (const [at, a, r, b] of pc.rows) {
 }
 const appName = new Map(summary.apps.map((a) => [a.id.toLowerCase(), a.name.trim()]));
 
+// Find the gateways from the chain itself: every contract that ever emitted
+// one of Wanchain's lock / burn / release / mint events.
+for (const [topic, name] of Object.entries(SIG)) {
+  try {
+    const ls = await thor.logs([{ topic0: topic }], 0, best.number);
+    const by = {};
+    for (const l of ls) by[l.address.toLowerCase()] = (by[l.address.toLowerCase()] ?? 0) + 1;
+    say(`${name}: ${ls.length} events from ${Object.keys(by).length} contracts`);
+    for (const [a, n] of Object.entries(by)) if (n >= 5 && !GATEWAYS[a]) GATEWAYS[a] = `Wanchain-style gateway (emits ${name})`;
+  } catch (e) {
+    say(`${name}: lookup failed ${e.message}`);
+  }
+}
 const out = { gateways: {}, transfers: [], byKind: {}, topicCounts: {} };
 for (const [g, label] of Object.entries(GATEWAYS)) {
   const hasCode = await thor.hasCode(g).catch(() => null);
+  if (!hasCode) {
+    say(`${label}: not a contract on mainnet, skipped`);
+    continue;
+  }
   // Everything the contract itself logged, by event.
   const own = await thor.logs([{ address: g }], 0, best.number);
   const counts = {};
@@ -135,9 +152,9 @@ for (const [g, label] of Object.entries(GATEWAYS)) {
 const known = new Set([...Object.values(MAINNET).map((a) => a.toLowerCase()), ...Object.keys(GATEWAYS)]);
 const teamWallets = [...teamOf.keys()];
 const contractTotals = new Map();
-for (let i = 0; i < teamWallets.length; i += 20) {
-  const part = teamWallets.slice(i, i + 20);
-  const logs = await thor.logs(part.map((w) => ({ address: B3TR, topic0: TOPIC.transfer, topic1: pad(w, { size: 32 }) })), 0, best.number);
+for (let i = 0; i < teamWallets.length; i += 5) {
+  const part = teamWallets.slice(i, i + 5).filter((w) => /^0x[0-9a-f]{40}$/.test(w));
+  const logs = await thor.logs(part.map((w) => ({ address: B3TR, topic0: TOPIC.transfer, topic1: pad(w, { size: 32 }) })), 0, best.number).catch((e) => (say(`team scan part failed: ${e.message}`), []));
   for (const l of logs) {
     const to = addr(l.topics[2]);
     if (known.has(to) || teamOf.has(to)) continue;
