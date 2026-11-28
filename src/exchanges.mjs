@@ -16,8 +16,12 @@ export const EXCHANGE_WALLETS = new Map([
   ['0x15bccf377f1a9bbd0cd8e24d031c9451326f29a0', 'OceanEX'],
   ['0xf89d7b9c864f589bbf53a82105107622b35eaa40', 'Bybit'],
   ['0xdb4962f5718947fcbec44845c3c40240344a050a', 'Kraken'],
+  // VeChainStats labels, looked up 2026-11-28: "Crypto.com (Hot Wallet)",
+  // "Coinbase (Hot Wallet 4)".
+  ['0x809e880c96a911965d8e3e00e207a97071678f7d', 'Crypto.com'],
+  ['0xff5ba88a17b2e16d23ff6647e9052e937acb1406', 'Coinbase'],
 ]);
-export const EXCHANGE_SOURCE = 'hot wallets named by morbidejs, 2026-11-28, as labelled on VeChainStats';
+export const EXCHANGE_SOURCE = 'exchange hot-wallet labels on VeChainStats (the first five confirmed by morbidejs), 2026-11-28';
 export const DEPOSIT_SHARE = 0.8;
 
 /** Which exchange a wallet deposits to, from everything it sent: name or null. */
