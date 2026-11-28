@@ -10,6 +10,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      investigate:
+        description: 'App name to investigate new wallets for (output encrypted with the audit key)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -46,6 +51,24 @@ jobs:
 
       - name: Summary
         run: node scripts/report.mjs site/data/summary.json
+
+      # New-wallet investigation, on demand only. Addresses never reach this
+      # public log: the details are encrypted with audit/audit-public.pem.
+      - name: Investigate
+        if: ${{ github.event.inputs.investigate != '' && github.event.inputs.investigate != null }}
+        continue-on-error: true
+        timeout-minutes: 35
+        env:
+          APP: ${{ github.event.inputs.investigate }}
+        run: |
+          node scripts/investigate.mjs "$APP" 7
+          openssl rand -hex -out investigate/key.bin 32
+          gzip -9 investigate/out.json
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in investigate/out.json.gz -out investigate/out.enc -pass file:investigate/key.bin
+          openssl pkeyutl -encrypt -pubin -inkey audit/audit-public.pem -pkeyopt rsa_padding_mode:oaep -in investigate/key.bin -out investigate/key.enc
+          echo "INV-KEY-BEGIN"; base64 -w0 investigate/key.enc; echo; echo "INV-KEY-END"
+          echo "INV-DATA-BEGIN"; base64 -w 50000 investigate/out.enc; echo "INV-DATA-END"
+          rm -rf investigate
 
       # Accuracy audit: per-round counts in plain text; the sample of merged
       # groups (addresses) is encrypted with audit/audit-public.pem, so only
