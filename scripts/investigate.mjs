@@ -24,11 +24,48 @@ import { createThor } from '../src/thor.mjs';
 
 const DAY = 86_400;
 const LOOKBACK_DAYS = 60;
-const CONTROL = 500;
 const CONCURRENCY = 8;
-const [target, daysArg] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const flag = (name, dflt) => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args.splice(i, 2)[1] : dflt;
+};
+const OUT = flag('out', 'investigate/out.json');
+const CONTROL_N = Number(flag('control', 500));
+const [target, daysArg] = args;
 const DAYS = Number(daysArg ?? 7);
 const say = (...a) => console.log('[investigate]', ...a);
+
+// investigate=bridges → bridge discovery; investigate=all → every app with
+// at least 20 new wallets this week, one child run each, merged.
+if (target === 'bridges') {
+  await import('./bridges.mjs');
+  process.exit(0);
+}
+if (target === 'all') {
+  const { execFileSync } = await import('node:child_process');
+  const { readFile: rf, writeFile: wf, mkdir: md } = await import('node:fs/promises');
+  const s = JSON.parse(await rf('site/data/summary.json', 'utf8'));
+  const list = s.apps
+    .map((a) => ({ a, n: s.users?.apps?.[a.id]?.newWallets?.perWeek?.[0] ?? 0 }))
+    .filter((x) => x.n >= 20)
+    .sort((x, y) => y.n - x.n);
+  say(`all apps: ${list.length} apps with 20+ new wallets this week`);
+  await md('investigate', { recursive: true });
+  const merged = { kind: 'all', apps: [] };
+  for (const [i, { a }] of list.entries()) {
+    const out = `investigate/app${i}.json`;
+    try {
+      execFileSync('node', ['scripts/investigate.mjs', a.id, String(DAYS), '--out', out, '--control', a.name.trim() === 'Mugshot' ? '500' : '150'], { stdio: 'inherit', timeout: 25 * 60_000 });
+      merged.apps.push(JSON.parse(await rf(out, 'utf8')));
+    } catch (e) {
+      say(`app ${i + 1} failed: ${e.message.split('\n')[0]}`);
+    }
+  }
+  await wf('investigate/out.json', JSON.stringify(merged));
+  say('all apps written (encrypted below)');
+  process.exit(0);
+}
 
 const thor = createThor({ log: () => {} });
 const best = await thor.bestBlock();
@@ -63,8 +100,8 @@ const newW = [...paidRecently].filter(isNew).map((r) => pc.receivers[r]).filter(
 const olderPool = [...paidRecently].filter((r) => first.get(r)[0] < now - (DAYS + LOOKBACK_DAYS) * DAY).map((r) => pc.receivers[r]);
 // Deterministic sample (sorted, every k-th) so reruns compare.
 olderPool.sort();
-const step = Math.max(1, Math.floor(olderPool.length / CONTROL));
-const control = olderPool.filter((_, i) => i % step === 0).slice(0, CONTROL);
+const step = Math.max(1, Math.floor(olderPool.length / CONTROL_N));
+const control = olderPool.filter((_, i) => i % step === 0).slice(0, CONTROL_N);
 say(`${app.name.trim()}: ${paidRecently.size} wallets paid in ${DAYS} days, ${newW.length} new, control sample ${control.length} of ${olderPool.length} long-time users`);
 
 // ── 2. the app's payouts in the window, with proof ──
@@ -252,7 +289,7 @@ for (const [k, field, take] of [
   for (const [a, c] of N[k]) {
     if (c < 3 || kind[a] !== 'wallet') continue;
     const ctrl = inControl(k, a);
-    if (ctrl > CONTROL * 0.01) continue; // common among real users too: a service
+    if (ctrl > Math.max(1, C.wallets * 0.01)) continue; // common among real users too: a service
     linkers.push({ via: field, address: a, newWallets: c, controlWallets: ctrl });
     const members = newP.filter((p) => !p.error && take(p).includes(a)).map((p) => p.w);
     for (const m of members) union(m, `${field}:${a}`);
@@ -277,7 +314,7 @@ say(`proof: ${N.proofValuesSharedBy5Plus.length} proof values shared by 5+ new w
 
 await mkdir('investigate', { recursive: true });
 await writeFile(
-  'investigate/out.json',
+  OUT,
   JSON.stringify({ app: app.name.trim(), appId, at: new Date(now * 1000).toISOString(), days: DAYS, lookbackDays: LOOKBACK_DAYS, newWallets: N, control: C, kind, linkers, groups: groupList.map((g) => ({ size: g.length, members: g })), profiles: newP }),
 );
 say('details written (encrypted below)');
