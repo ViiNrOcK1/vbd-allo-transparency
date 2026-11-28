@@ -68,6 +68,11 @@ jobs:
           openssl pkeyutl -encrypt -pubin -inkey audit/audit-public.pem -pkeyopt rsa_padding_mode:oaep -in investigate/key.bin -out investigate/key.enc
           echo "INV-KEY-BEGIN"; base64 -w0 investigate/key.enc; echo; echo "INV-KEY-END"
           echo "INV-DATA-BEGIN"; base64 -w 50000 investigate/out.enc; echo "INV-DATA-END"
+          for f in investigate/*sheet.jpg; do
+            [ -f "$f" ] || continue
+            openssl enc -aes-256-cbc -pbkdf2 -salt -in "$f" -out investigate/sheet.enc -pass file:investigate/key.bin
+            echo "INV-SHEET-BEGIN $(basename "$f")"; base64 -w 50000 investigate/sheet.enc; echo "INV-SHEET-END"
+          done
           rm -rf investigate
 
       # Accuracy audit: per-round counts in plain text; the sample of merged

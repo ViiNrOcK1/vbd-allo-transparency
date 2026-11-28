@@ -354,6 +354,34 @@ if (sharp && newW.some((w) => urlsOf(w).length)) {
   photoNew = await photoCheck(newP.filter((p) => !p.error).map((p) => p.w), IMG_NEW);
   photoCtrl = await photoCheck(ctrlP.filter((p) => !p.error).map((p) => p.w), IMG_CTRL);
 }
+// Contact sheet for a human check: each row = one group of matched photos
+// (different wallets), the last row = control photos. Encrypted with the rest.
+if (photoNew?.clusters?.length && flag('sheet', process.env.INV_SHEET ?? '1') !== '0') {
+  const T = 160;
+  const rows = photoNew.clusters.slice(0, 8).map((c) => c.photos.slice(0, 6));
+  rows.push(
+    ctrlP
+      .filter((p) => !p.error)
+      .flatMap((p) => urlsOf(p.w).slice(0, 1))
+      .slice(0, 6),
+  );
+  const tiles = [];
+  for (const [ri, row] of rows.entries())
+    for (const [ci, u] of row.entries()) {
+      try {
+        const r = await fetch(u);
+        if (!r.ok) continue;
+        const img = await sharp(Buffer.from(await r.arrayBuffer())).rotate().resize(T, T, { fit: 'cover' }).jpeg({ quality: 70 }).toBuffer();
+        tiles.push({ input: img, left: ci * (T + 6), top: ri * (T + 6) + (ri === rows.length - 1 ? 18 : 0) });
+      } catch {}
+    }
+  await mkdir('investigate', { recursive: true });
+  await sharp({ create: { width: 6 * (T + 6), height: rows.length * (T + 6) + 18, channels: 3, background: '#ffffff' } })
+    .composite(tiles)
+    .jpeg({ quality: 72 })
+    .toFile(OUT.replace(/\.json$/, '') + '-sheet.jpg');
+  say(`contact sheet: ${tiles.length} photos`);
+}
 
 // ── 5. groups: shared funder / sweep destination / private delegator ──
 const counts = (k) => new Map(N[k].map(([a, c]) => [a, c]));
