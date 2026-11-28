@@ -197,3 +197,11 @@ ol.recips .rk { display: inline-block; font-size: 11px; font-weight: 600; paddin
 .rv details { display: inline; }
 .rv details[open] { display: block; margin-top: 6px; }
 .rv details a { display: inline-block; margin: 0 8px 4px 0; font-variant-numeric: tabular-nums; }
+
+/* new wallets per week */
+.nw-wrap { overflow-x: auto; }
+table.nw { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+table.nw th, table.nw td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line, #ddd); text-align: left; }
+table.nw th { font-weight: 600; font-size: 0.8rem; }
+table.nw .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.nw td.hot { font-weight: 700; background: rgba(220, 80, 40, 0.15); }

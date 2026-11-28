@@ -468,6 +468,43 @@ function networksChart(el, data, state = { all: false }, repaint = () => {}) {
   showAllButton(el, allRows.length, state, repaint);
 }
 
+// ── new wallets per week (Morb, 2026-11-27: "Mugshot getting hammered by
+// farmers, +6.3k new wallets") ──
+export function newWalletsCard(el, data) {
+  const nw = data.users?.newWallets;
+  const u = data.users?.apps;
+  if (!nw || !u) {
+    el.hidden = true;
+    return;
+  }
+  const name = new Map(data.apps.map((a) => [a.id, a.name.trim()]));
+  const rows = Object.entries(u)
+    .filter(([, x]) => x.newWallets && x.newWallets.perWeek.some((n) => n > 0))
+    .map(([id, x]) => ({ name: name.get(id) ?? id.slice(0, 10), w: x.newWallets.perWeek, linked: x.newWallets.linked7 }))
+    .sort((a, b) => b.w[0] - a.w[0])
+    .slice(0, 10);
+  if (!rows.length) {
+    el.hidden = true;
+    return;
+  }
+  const weeks = nw.weeksEnding.map((t) => new Date(t * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })).reverse();
+  const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  el.innerHTML = `<h3>New wallets per week, by the app that paid them first</h3>
+    <div class="nw-wrap"><table class="nw">
+      <thead><tr><th>App</th>${weeks.map((d, i) => `<th class="num">${i === weeks.length - 1 ? 'Last 7 days' : `Week to ${d}`}</th>`).join('')}<th class="num">Last 7 days: already in a multi-wallet network</th></tr></thead>
+      <tbody>${rows
+        .map((r) => {
+          const w = [...r.w].reverse();
+          const base = w.slice(0, -1).filter((n) => n > 0);
+          const avg = base.length ? base.reduce((a, b) => a + b, 0) / base.length : 0;
+          const jump = avg > 0 && w[w.length - 1] >= 3 * avg && w[w.length - 1] >= 200;
+          return `<tr><td>${esc2(r.name)}</td>${w.map((n, i) => `<td class="num${i === w.length - 1 && jump ? ' hot' : ''}">${fmt(n)}</td>`).join('')}<td class="num">${fmt(r.linked)}${w[w.length - 1] ? ` (${Math.round((r.linked / w[w.length - 1]) * 100)}%)` : ''}</td></tr>`;
+        })
+        .join('')}</tbody>
+    </table></div>
+    <p class="fine">A wallet counts as new in the week of its first reward from any app, with no reward from any app in the ${nw.lookbackDays} days before. It is credited to the app that paid it first. Highlighted: at least 3× that app's usual week and at least 200 wallets. A burst of brand-new wallets on one app is the usual sign of a farm being set up, but it can also be a real marketing push; check the "multi-wallet network" column, which counts the new wallets already linked to others by the rules above (it grows as their rewards move).</p>`;
+}
+
 export function renderCharts(data) {
   const root = document.getElementById('charts');
   if (!root || !data?.apps?.length) return;
@@ -476,6 +513,7 @@ export function renderCharts(data) {
     <div class="viz-card" id="viz-sellers"></div>
     <div class="viz-card" id="viz-rounds"></div>
     <div class="viz-card" id="viz-users"></div>
+    <div class="viz-card" id="viz-new"></div>
     <div class="viz-card" id="viz-networks"></div>`;
   const pick = (mode) => (mode === 'all' ? data.apps : data.apps.filter((a) => a.active));
   // Visible BEFORE drawing, so the line chart measures its real width (it was
@@ -499,6 +537,7 @@ export function renderCharts(data) {
   const usersState = { all: false };
   let repaintUsers = () => {};
   repaintUsers = withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }, usersState, () => repaintUsers()));
+  newWalletsCard(root.querySelector('#viz-new'), data);
   const netState = { all: false };
   let repaintNet = () => {};
   repaintNet = withFilter(root.querySelector('#viz-networks'), (mode) => networksChart(root.querySelector('#viz-networks'), { ...data, apps: pick(mode), allApps: data.apps }, netState, () => repaintNet()));

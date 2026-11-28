@@ -1046,6 +1046,14 @@ async function main() {
     await saveCache('excludeof', Object.fromEntries(Object.entries(excludeOf).map(([k, v]) => [k, [...v]])));
     users = userStats(payoutCache, best.timestamp, excludeOf, personOf);
     users.sweeps = sweepInfo;
+    {
+      const nw = Object.entries(users.apps)
+        .filter(([, x]) => x.newWallets)
+        .map(([id, x]) => [apps.find((a) => a.id === id)?.name ?? id.slice(0, 10), x.newWallets])
+        .sort((a, b) => b[1].perWeek[0] - a[1].perWeek[0])
+        .slice(0, 8);
+      log(`new wallets per week (newest first; no reward from any app in ${users.newWallets?.lookbackDays ?? '?'} days before): ${nw.map(([n, x]) => `${n} ${x.perWeek.join('/')} (linked ${x.linked7})`).join(' · ') || 'n/a'}`);
+    }
     // Hand-reviewed networks: what they were paid, and how they voted, so the
     // page proves it from the data alone (Vinny, 2026-11-21).
     if (personOf && LINKS_V2_PUBLIC && REVIEWED_LINKS.length) {

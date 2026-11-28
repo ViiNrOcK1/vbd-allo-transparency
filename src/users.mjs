@@ -5,6 +5,8 @@
 
 export const WINDOW_DAYS = 90;
 const KEEP_DAYS = 100;
+export const NEW_WEEKS = 5;
+export const NEW_LOOKBACK_DAYS = 60; // 5 weeks + 60 days fits in KEEP_DAYS
 const DAY = 86_400;
 
 /** Empty cache: rows are [unixTs, appIndex, receiverIndex, b3trWhole]. */
@@ -95,6 +97,33 @@ export function userStats(c, nowTs, excludeOf = {}, personOf = null) {
       eco30.add(r);
     }
   }
+  // New wallets (Morb, 2026-11-27: "Mugshot getting hammered by farmers,
+  // +6.3k new wallets"). A wallet is new when its first reward from ANY app
+  // in the cache falls in the week; it is credited to the app that paid it
+  // first. The cache keeps KEEP_DAYS, so "new" means no reward from any app
+  // in the NEW_LOOKBACK_DAYS before; weeks without that much history behind
+  // them are not reported.
+  const first = new Map(); // receiver → [at, appIndex]
+  for (const [at, a, r] of c.rows) {
+    const f = first.get(r);
+    if (!f || at < f[0]) first.set(r, [at, a]);
+  }
+  const oldest = c.rows.reduce((m, row) => Math.min(m, row[0]), Infinity);
+  const newWeeks = [];
+  for (let w = 0; w < NEW_WEEKS; w++) {
+    const end = nowTs - w * 7 * DAY;
+    if (end - 7 * DAY - oldest >= NEW_LOOKBACK_DAYS * DAY) newWeeks.push({ w, start: end - 7 * DAY, end });
+  }
+  const newBy = new Map(); // appId → { weeks: number[], linked7: number }
+  for (const [r, [at, a]] of first) {
+    const wk = newWeeks.find((x) => at >= x.start && at < x.end);
+    if (!wk) continue;
+    const id = c.apps[a];
+    if (excludeOf[id]?.has(c.receivers[r])) continue;
+    const n = newBy.get(id) ?? newBy.set(id, { weeks: newWeeks.map(() => 0), linked7: 0 }).get(id);
+    n.weeks[newWeeks.indexOf(wk)]++;
+    if (wk.w === 0 && (netSize.get(person(r)) ?? 1) >= 2) n.linked7++;
+  }
   const apps = {};
   for (const [id, s] of per) {
     // Concentration (Morb, 2026-11-18): an app that pays rewards in bulk to
@@ -115,9 +144,15 @@ export function userStats(c, nowTs, excludeOf = {}, personOf = null) {
       ...(personOf ? { toNetworks90: Math.round(s.toNetworks90), networkWallets90: s.networkWallets90.size } : {}),
       topReceiver90: ranked[0] ? { address: c.receivers[ranked[0][0]], b3tr: Math.round(ranked[0][1]), sharePct: share(1) } : null,
       top5SharePct90: share(5),
+      ...(newBy.has(id) ? { newWallets: { perWeek: newBy.get(id).weeks, linked7: newBy.get(id).linked7 } } : {}),
     };
   }
-  return { apps, ecosystem: { users30: eco30.size, users90: eco90.size, people30: ppl30.size, people90: ppl90.size }, peopleLinked: Boolean(personOf) };
+  return {
+    apps,
+    ecosystem: { users30: eco30.size, users90: eco90.size, people30: ppl30.size, people90: ppl90.size },
+    peopleLinked: Boolean(personOf),
+    newWallets: newWeeks.length ? { weeksEnding: newWeeks.map((x) => x.end), lookbackDays: NEW_LOOKBACK_DAYS } : null,
+  };
 }
 
 /**
