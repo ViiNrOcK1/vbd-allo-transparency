@@ -505,6 +505,43 @@ export function newWalletsCard(el, data) {
     <p class="fine">A wallet counts as new in the week of its first reward from any app, with no reward from any app in the ${nw.lookbackDays} days before. It is credited to the app that paid it first. Highlighted: at least 3× that app's usual week and at least 200 wallets. A burst of brand-new wallets on one app is the usual sign of a farm being set up, but it can also be a real marketing push; check the "multi-wallet network" column, which counts the new wallets already linked to others by the rules above (it grows as their rewards move).</p>`;
 }
 
+// ── team money sent to exchanges (src/exchanges.mjs) ──
+export function exchangesCard(el, data) {
+  const ex = data.exchanges;
+  const rows = Object.entries(ex?.byApp ?? {})
+    .map(([id, t]) => {
+      const names = {};
+      for (const tok of ['B3TR', 'VET']) for (const [n, e] of Object.entries(t[tok]?.byExchange ?? {})) names[n] = (names[n] ?? 0) + e.usd;
+      return {
+        name: data.apps.find((a) => a.id === id)?.name.trim() ?? id.slice(0, 10),
+        usd: (t.B3TR?.usd ?? 0) + (t.VET?.usd ?? 0),
+        b3tr: t.B3TR?.total ?? 0,
+        vet: t.VET?.total ?? 0,
+        names: Object.entries(names).sort((a, b) => b[1] - a[1]).map(([n]) => n),
+      };
+    })
+    .filter((r) => r.usd > 0 || r.b3tr > 0 || r.vet > 0)
+    .sort((a, b) => b.usd - a.usd);
+  if (!rows.length) {
+    el.hidden = true;
+    return;
+  }
+  const esc2 = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const usd = (n) => '$' + fmt(Math.round(n));
+  const show = (all) => {
+    const list = all ? rows : rows.slice(0, 12);
+    el.innerHTML = `<h3>Team money sent to exchanges, all time</h3>
+      <div class="nw-wrap"><table class="nw">
+        <thead><tr><th>App</th><th class="num">US$ at the time</th><th class="num">B3TR</th><th class="num">VET</th><th>Exchanges</th></tr></thead>
+        <tbody>${list.map((r) => `<tr><td>${esc2(r.name)}</td><td class="num">${usd(r.usd)}</td><td class="num">${fmt(Math.round(r.b3tr))}</td><td class="num">${fmt(Math.round(r.vet))}</td><td>${esc2(r.names.join(', '))}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${rows.length > 12 ? `<button class="toggle" type="button">${all ? 'Show top 12' : `Show all ${rows.length} apps`}</button>` : ''}
+      <p class="fine">B3TR and VET that team wallets sent straight to an exchange's hot wallet, or to a deposit address (a wallet that passed at least 80% of what it ever sent to one exchange hot wallet; exchanges give each customer their own). VET is mostly what B3TR sales returned. Exchanges: ${esc2(Object.values(ex.wallets).join(', '))} (${esc2(ex.source)}). Other exchanges aren't counted yet, so this is a floor. What happens inside an exchange can't be seen on chain. This can be wrong and will be corrected.</p>`;
+    el.querySelector('.toggle')?.addEventListener('click', () => show(!all));
+  };
+  show(false);
+}
+
 export function renderCharts(data) {
   const root = document.getElementById('charts');
   if (!root || !data?.apps?.length) return;
@@ -514,6 +551,7 @@ export function renderCharts(data) {
     <div class="viz-card" id="viz-rounds"></div>
     <div class="viz-card" id="viz-users"></div>
     <div class="viz-card" id="viz-new"></div>
+    <div class="viz-card" id="viz-exchanges"></div>
     <div class="viz-card" id="viz-networks"></div>`;
   const pick = (mode) => (mode === 'all' ? data.apps : data.apps.filter((a) => a.active));
   // Visible BEFORE drawing, so the line chart measures its real width (it was
@@ -538,6 +576,7 @@ export function renderCharts(data) {
   let repaintUsers = () => {};
   repaintUsers = withFilter(root.querySelector('#viz-users'), (mode) => usersChart(root.querySelector('#viz-users'), { ...data, apps: pick(mode) }, usersState, () => repaintUsers()));
   newWalletsCard(root.querySelector('#viz-new'), data);
+  exchangesCard(root.querySelector('#viz-exchanges'), data);
   const netState = { all: false };
   let repaintNet = () => {};
   repaintNet = withFilter(root.querySelector('#viz-networks'), (mode) => networksChart(root.querySelector('#viz-networks'), { ...data, apps: pick(mode), allApps: data.apps }, netState, () => repaintNet()));

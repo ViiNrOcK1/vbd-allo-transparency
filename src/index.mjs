@@ -19,6 +19,7 @@ import { flowOf, forwardLinks } from './forwards.mjs';
 import { APP_PAYMENT_WALLETS, CONFIRMED_TEAM_WALLETS, KNOWN_SERVICE_WALLETS, priceLikeCollectors } from './services.mjs';
 import { MIN_B3TR as PASS_MIN, traceLots } from './passthrough.mjs';
 import { REVIEWED_LINKS, reviewedPairs } from './reviewed.mjs';
+import { depositExchange, EXCHANGE_SOURCE, EXCHANGE_WALLETS, exchangeTotals } from './exchanges.mjs';
 const SERVICE_HUB_TX = 1000;
 // Second-generation linking (Morb's review, 2026-11-21): a shared funder
 // needs a second sign, and collector networks are followed 1–2 hops. Off
@@ -1164,6 +1165,74 @@ async function main() {
   }
   log(`payment wallets: ${Object.values(paymentByApp).flat().map((p) => `${p.label} sold ${Number(BigInt(p.sold) / 10n ** 18n)} B3TR`).join(' · ') || 'none'}`);
 
+  // ── Team money sent to exchanges (exchanges.mjs) ──
+  // B3TR: the team / payment wallets' plain-wallet outflows (after pass-through
+  // sales were split out). VET: every VET transfer out of those wallets
+  // (mostly sale proceeds). Deposit addresses are cached; one checked as "not a
+  // deposit" is checked again after a week.
+  const exchangeByApp = {};
+  try {
+    const NODE = process.env.VECHAIN_NODE || 'https://mainnet.vechain.org';
+    const postJ = (path, body) => fetch(NODE + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+    const vetTransfers = async (criteria, cap) => {
+      const out = [];
+      for (let offset = 0; offset < cap; offset += 1000) {
+        const r = await postJ('/logs/transfer', { range: { unit: 'block', from: 0, to: best.number }, options: { offset, limit: 1000 }, criteriaSet: [criteria], order: 'asc' });
+        if (!Array.isArray(r)) throw new Error('transfer logs failed');
+        out.push(...r);
+        if (r.length < 1000) break;
+      }
+      return out;
+    };
+    const appOfWallet = new Map();
+    for (const [id, ws] of appWallets) for (const w of ws) if (!appOfWallet.has(w)) appOfWallet.set(w, id);
+    for (const p of APP_PAYMENT_WALLETS) appOfWallet.set(p.wallet.toLowerCase(), p.appId.toLowerCase());
+    const flows = [];
+    for (const [owner, f] of [...Object.entries(wallets), ...Object.entries(paymentWallets)]) {
+      const app = appOfWallet.get(owner);
+      if (!app) continue;
+      for (const o of f.outflows) if (o.kind === 'other_wallet' && o.to && !walletSet.has(o.to)) flows.push({ app, token: 'B3TR', to: o.to, value: Number(o.value / 10n ** 15n) / 1000, at: o.at });
+    }
+    let vetWallets = 0;
+    await mapLimit([...appOfWallet.keys()], 4, async (w) => {
+      const xs = await vetTransfers({ sender: w }, 30_000);
+      vetWallets++;
+      for (const x of xs) {
+        const to = String(x.recipient).toLowerCase();
+        if (walletSet.has(to)) continue;
+        flows.push({ app: appOfWallet.get(w), token: 'VET', to, value: Number(BigInt(x.amount) / 10n ** 15n) / 1000, at: x.meta.blockTimestamp });
+      }
+    });
+    const depCache = await loadCache('deposits'); // `${token}|${addr}` → { ex, at }
+    const totalTo = new Map();
+    for (const f of flows) totalTo.set(`${f.token}|${f.to}`, (totalTo.get(`${f.token}|${f.to}`) ?? 0) + f.value);
+    let checked = 0;
+    const classify = async (token, to) => {
+      const k = `${token}|${to}`;
+      const c = depCache[k];
+      if (c && (c.ex || c.at > best.timestamp - 7 * 86_400)) return c.ex;
+      if ((totalTo.get(k) ?? 0) < (token === 'VET' ? 1000 : 100)) return null; // dust: not worth a lookup
+      if (await isContract(to)) return (depCache[k] = { ex: null, at: best.timestamp }).ex;
+      checked++;
+      const outs =
+        token === 'VET'
+          ? (await vetTransfers({ sender: to }, 5000)).map((x) => ({ to: String(x.recipient).toLowerCase(), value: Number(BigInt(x.amount) / 10n ** 15n) / 1000 }))
+          : (await thor.logs([{ address: MAINNET.b3tr, topic0: TOPIC.transfer, topic1: pad(to, { size: 32 }) }], 0, best.number)).map((l) => ({ to: ('0x' + l.topics[2].slice(26)).toLowerCase(), value: Number(BigInt(l.data) / 10n ** 15n) / 1000 }));
+      depCache[k] = { ex: depositExchange(outs), at: best.timestamp };
+      return depCache[k].ex;
+    };
+    const totals = await exchangeTotals(flows, classify, (token, ts) => (token === 'VET' ? vetUsdAt(dayOf(ts)) : priceAt(ts)));
+    await saveCache('deposits', depCache);
+    for (const [app, t] of Object.entries(totals)) exchangeByApp[app] = t;
+    const top = Object.entries(totals)
+      .map(([id, t]) => [apps.find((a) => a.id === id)?.name ?? id.slice(0, 10), (t.B3TR?.usd ?? 0) + (t.VET?.usd ?? 0)])
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    log(`exchanges: ${flows.length} team transfers (${vetWallets} wallets' VET), ${checked} deposit addresses checked; to exchanges, $ at the time: ${top.map(([n, u]) => `${n} $${Math.round(u)}`).join(' · ')}`);
+  } catch (e) {
+    log(`exchanges: FAILED ${e.message} (left out this run)`);
+  }
+
   const summary = summarize({
     apps,
     endorsersOf,
@@ -1199,6 +1268,7 @@ async function main() {
         contracts: MAINNET,
         ...summary,
         paymentWallets: paymentByApp,
+        exchanges: { source: EXCHANGE_SOURCE, wallets: Object.fromEntries(EXCHANGE_WALLETS), byApp: exchangeByApp },
       },
       null,
       1,
