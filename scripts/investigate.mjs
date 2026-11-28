@@ -42,6 +42,10 @@ if (target === 'bridges') {
   await import('./bridges.mjs');
   process.exit(0);
 }
+if (target === 'proceeds') {
+  await import('./proceeds.mjs');
+  process.exit(0);
+}
 if (target === 'all') {
   const { execFileSync } = await import('node:child_process');
   const { readFile: rf, writeFile: wf, mkdir: md } = await import('node:fs/promises');
